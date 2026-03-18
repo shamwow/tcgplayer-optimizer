@@ -1,4 +1,4 @@
-import type { ExtensionMessage, CartItem, CartSummary, OptimizationResult } from "@/types";
+import type { ExtensionMessage, CartItem, CartSummary, OptimizationResult, OptimizeMode } from "@/types";
 
 /**
  * Content script injected on tcgplayer.com/cart pages.
@@ -219,6 +219,34 @@ function getOverlayStyles(): string {
       transform: translateX(16px);
     }
 
+    /* Mode toggle */
+    .mode-toggle {
+      display: flex;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .mode-btn {
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 500;
+      border: none;
+      background: white;
+      color: #6b7280;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .mode-btn:first-child {
+      border-right: 1px solid #d1d5db;
+    }
+    .mode-btn.active {
+      background: #2563eb;
+      color: white;
+    }
+    .mode-btn:hover:not(.active) {
+      background: #f3f4f6;
+    }
+
     /* Existing styles preserved */
     .error-box {
       background: #fef2f2;
@@ -418,6 +446,7 @@ interface OverlayState {
   cartExpanded: boolean;
   // Card 2
   optimizerStage: "loading" | "idle" | "optimizing" | "done";
+  optimizeMode: OptimizeMode;
   filterVerified: boolean;
   progress: { stage: string; progress: number };
   result: OptimizationResult | null;
@@ -432,6 +461,7 @@ let state: OverlayState = {
   summary: null,
   cartExpanded: false,
   optimizerStage: "loading",
+  optimizeMode: "cheapest",
   filterVerified: true,
   progress: { stage: "", progress: 0 },
   result: null,
@@ -564,6 +594,16 @@ function renderOptimizerCard(): string {
   html += `<div class="card-body">`;
 
   if (state.optimizerStage === "idle") {
+    // Mode selector
+    html += `
+      <div class="filter-row">
+        <span class="filter-label">Mode</span>
+        <div class="mode-toggle">
+          <button class="mode-btn ${state.optimizeMode === "cheapest" ? "active" : ""}" id="tcg-opt-mode-cheapest">Cheapest</button>
+          <button class="mode-btn ${state.optimizeMode === "fewest-packages" ? "active" : ""}" id="tcg-opt-mode-fewest">Fewest Packages</button>
+        </div>
+      </div>
+    `;
     // Filter controls
     html += `
       <div class="filter-row">
@@ -745,6 +785,16 @@ function bindEvents() {
   });
 
 
+  overlayContainer.querySelector("#tcg-opt-mode-cheapest")?.addEventListener("click", () => {
+    state.optimizeMode = "cheapest";
+    render();
+  });
+
+  overlayContainer.querySelector("#tcg-opt-mode-fewest")?.addEventListener("click", () => {
+    state.optimizeMode = "fewest-packages";
+    render();
+  });
+
   overlayContainer.querySelector("#tcg-opt-verified")?.addEventListener("change", (e) => {
     state.filterVerified = (e.target as HTMLInputElement).checked;
   });
@@ -828,7 +878,7 @@ async function runOptimize() {
   try {
     const response: ExtensionMessage = await new Promise((resolve) => {
       chrome.runtime.sendMessage(
-        { type: "OPTIMIZE", items: state.items, verifiedOnly: state.filterVerified } satisfies ExtensionMessage,
+        { type: "OPTIMIZE", items: state.items, verifiedOnly: state.filterVerified, mode: state.optimizeMode } satisfies ExtensionMessage,
         resolve
       );
     });

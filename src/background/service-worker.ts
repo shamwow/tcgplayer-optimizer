@@ -23,7 +23,7 @@ chrome.runtime.onMessage.addListener(
       return true; // async
     }
     if (message.type === "OPTIMIZE") {
-      handleOptimize(message.items, message.verifiedOnly, sendResponse);
+      handleOptimize(message.items, message.verifiedOnly, message.mode, sendResponse);
       return true; // async
     }
   }
@@ -129,6 +129,7 @@ async function getCartKeyFromCookie(): Promise<string | null> {
 async function handleOptimize(
   items: CartItem[],
   verifiedOnly: boolean,
+  mode: "cheapest" | "fewest-packages" = "cheapest",
   sendResponse: (msg: ExtensionMessage) => void
 ) {
   try {
@@ -179,7 +180,7 @@ async function handleOptimize(
     // Step 3: Build model and solve (only for cards with listings)
     sendProgress("Solving optimization...", 0.6, "Building model and sending to solver...");
     console.log("[TCG Optimizer SW] Building model and solving via offscreen document...");
-    const modelInput = buildModelInput(optimizableItems, allListings);
+    const modelInput = buildModelInput(optimizableItems, allListings, mode);
     const solverResult = await solveViaOffscreen(modelInput);
     console.log(`[TCG Optimizer SW] Solver result: ${solverResult.status} in ${solverResult.solveTimeMs}ms`);
 
@@ -310,7 +311,8 @@ async function fetchAllListings(
 
 function buildModelInput(
   items: CartItem[],
-  allListings: Map<number, SellerListing[]>
+  allListings: Map<number, SellerListing[]>,
+  mode: "cheapest" | "fewest-packages" = "cheapest"
 ): ModelInput {
   return {
     cards: items.map((item) => ({
@@ -330,6 +332,7 @@ function buildModelInput(
         })
       );
     }),
+    mode,
   };
 }
 

@@ -9,6 +9,8 @@ export interface ModelInput {
   }>;
   /** Listings per card (outer index matches cards array) */
   listingsPerCard: ListingForModel[][];
+  /** Optimization mode (default: "cheapest") */
+  mode?: "cheapest" | "fewest-packages";
 }
 
 /** A listing as consumed by the model builder */

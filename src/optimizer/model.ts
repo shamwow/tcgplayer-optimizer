@@ -15,7 +15,7 @@ import type { ModelInput } from "./types";
  *   ∀ listing l: x[l] ≤ y[seller(l)]         (seller active if buying from them)
  */
 export function buildLpModel(input: ModelInput): string {
-  const { cards, listingsPerCard } = input;
+  const { cards, listingsPerCard, mode } = input;
 
   // Collect unique sellers and their shipping costs
   const sellerShipping = new Map<string, number>();
@@ -29,6 +29,25 @@ export function buildLpModel(input: ModelInput): string {
         sellerShipping.set(listing.sellerKey, listing.shippingCents);
       }
     }
+  }
+
+  // For fewest-packages mode, compute big-M: sum of max price per card + max shipping.
+  // This ensures fewer sellers always dominates over cost savings.
+  let bigM = 0;
+  if (mode === "fewest-packages") {
+    for (const listings of listingsPerCard) {
+      let maxPrice = 0;
+      for (const listing of listings) {
+        if (listing.priceCents > maxPrice) maxPrice = listing.priceCents;
+      }
+      bigM += maxPrice;
+    }
+    let maxShipping = 0;
+    for (const shipping of sellerShipping.values()) {
+      if (shipping > maxShipping) maxShipping = shipping;
+    }
+    bigM += maxShipping * sellerShipping.size;
+    bigM += 1; // ensure strict dominance
   }
 
   const lines: string[] = [];
@@ -46,7 +65,8 @@ export function buildLpModel(input: ModelInput): string {
 
   for (const [sellerKey, shipping] of sellerShipping) {
     const safeKey = sanitizeVarName(sellerKey);
-    objTerms.push(`${shipping} y_${safeKey}`);
+    const sellerCoeff = mode === "fewest-packages" ? bigM + shipping : shipping;
+    objTerms.push(`${sellerCoeff} y_${safeKey}`);
   }
 
   lines.push("  obj: " + objTerms.join(" + "));

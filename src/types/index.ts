@@ -103,11 +103,14 @@ export interface CartSummary {
   shippingCostCents: number;
 }
 
+/** Optimization mode: minimize cost or minimize number of sellers */
+export type OptimizeMode = "cheapest" | "fewest-packages";
+
 /** Messages between content script, popup, and background */
 export type ExtensionMessage =
   | { type: "READ_CART" }
   | { type: "CART_DATA"; items: CartItem[]; summary: CartSummary | null }
-  | { type: "OPTIMIZE"; items: CartItem[]; verifiedOnly: boolean }
+  | { type: "OPTIMIZE"; items: CartItem[]; verifiedOnly: boolean; mode: OptimizeMode }
   | { type: "OPTIMIZATION_PROGRESS"; stage: string; progress: number; detail?: string }
   | { type: "OPTIMIZATION_RESULT"; result: OptimizationResult }
   | { type: "OPTIMIZATION_ERROR"; error: string };
