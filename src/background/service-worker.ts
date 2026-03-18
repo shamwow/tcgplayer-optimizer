@@ -158,7 +158,7 @@ async function handleOptimize(
           name: item.name,
           condition: item.condition,
           printing: item.printing,
-          reason: "No listings found with given filters.",
+          reason: "No other listings found with given filters. Keeping original cart item.",
         });
         console.warn(`[TCG Optimizer SW] Skipping "${item.name}" — no listings for ${item.condition} / ${item.printing}`);
       } else {
