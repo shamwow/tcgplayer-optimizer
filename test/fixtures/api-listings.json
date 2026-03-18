@@ -1,0 +1,200 @@
+{
+  "528692": {
+    "totalResults": 5,
+    "resultCount": 5,
+    "results": [
+      {
+        "listingId": "L001",
+        "productId": 528692,
+        "sellerName": "SellerA",
+        "sellerKey": "seller-a",
+        "price": 0.20,
+        "quantity": 10,
+        "shippingPrice": 0.99,
+        "condition": "Near Mint",
+        "printing": "Normal",
+        "goldSeller": true,
+        "directInventory": false,
+        "sellerShippingPrice": 0.99,
+        "channelId": 0
+      },
+      {
+        "listingId": "L002",
+        "productId": 528692,
+        "sellerName": "SellerB",
+        "sellerKey": "seller-b",
+        "price": 0.22,
+        "quantity": 5,
+        "shippingPrice": 1.29,
+        "condition": "Near Mint",
+        "printing": "Normal",
+        "goldSeller": true,
+        "directInventory": false,
+        "sellerShippingPrice": 1.29,
+        "channelId": 0
+      },
+      {
+        "listingId": "L003",
+        "productId": 528692,
+        "sellerName": "SellerC",
+        "sellerKey": "seller-c",
+        "price": 0.18,
+        "quantity": 8,
+        "shippingPrice": 2.50,
+        "condition": "Near Mint",
+        "printing": "Normal",
+        "goldSeller": true,
+        "directInventory": false,
+        "sellerShippingPrice": 2.50,
+        "channelId": 0
+      },
+      {
+        "listingId": "L004",
+        "productId": 528692,
+        "sellerName": "SellerD",
+        "sellerKey": "seller-d",
+        "price": 0.30,
+        "quantity": 20,
+        "shippingPrice": 0.00,
+        "condition": "Near Mint",
+        "printing": "Normal",
+        "goldSeller": true,
+        "directInventory": false,
+        "sellerShippingPrice": 0.00,
+        "channelId": 0
+      },
+      {
+        "listingId": "L005",
+        "productId": 528692,
+        "sellerName": "SellerE",
+        "sellerKey": "seller-e",
+        "price": 0.15,
+        "quantity": 2,
+        "shippingPrice": 3.00,
+        "condition": "Near Mint",
+        "printing": "Normal",
+        "goldSeller": false,
+        "directInventory": false,
+        "sellerShippingPrice": 3.00,
+        "channelId": 0
+      }
+    ]
+  },
+  "528750": {
+    "totalResults": 4,
+    "resultCount": 4,
+    "results": [
+      {
+        "listingId": "L101",
+        "productId": 528750,
+        "sellerName": "SellerA",
+        "sellerKey": "seller-a",
+        "price": 1.25,
+        "quantity": 3,
+        "shippingPrice": 0.99,
+        "condition": "Near Mint",
+        "printing": "Foil",
+        "goldSeller": true,
+        "directInventory": false,
+        "sellerShippingPrice": 0.99,
+        "channelId": 0
+      },
+      {
+        "listingId": "L102",
+        "productId": 528750,
+        "sellerName": "SellerB",
+        "sellerKey": "seller-b",
+        "price": 1.35,
+        "quantity": 2,
+        "shippingPrice": 1.29,
+        "condition": "Near Mint",
+        "printing": "Foil",
+        "goldSeller": true,
+        "directInventory": false,
+        "sellerShippingPrice": 1.29,
+        "channelId": 0
+      },
+      {
+        "listingId": "L103",
+        "productId": 528750,
+        "sellerName": "SellerC",
+        "sellerKey": "seller-c",
+        "price": 1.10,
+        "quantity": 1,
+        "shippingPrice": 2.50,
+        "condition": "Near Mint",
+        "printing": "Foil",
+        "goldSeller": true,
+        "directInventory": false,
+        "sellerShippingPrice": 2.50,
+        "channelId": 0
+      },
+      {
+        "listingId": "L104",
+        "productId": 528750,
+        "sellerName": "SellerD",
+        "sellerKey": "seller-d",
+        "price": 1.40,
+        "quantity": 5,
+        "shippingPrice": 0.00,
+        "condition": "Near Mint",
+        "printing": "Foil",
+        "goldSeller": true,
+        "directInventory": false,
+        "sellerShippingPrice": 0.00,
+        "channelId": 0
+      }
+    ]
+  },
+  "530100": {
+    "totalResults": 3,
+    "resultCount": 3,
+    "results": [
+      {
+        "listingId": "L201",
+        "productId": 530100,
+        "sellerName": "SellerA",
+        "sellerKey": "seller-a",
+        "price": 0.60,
+        "quantity": 4,
+        "shippingPrice": 0.99,
+        "condition": "Lightly Played",
+        "printing": "Normal",
+        "goldSeller": true,
+        "directInventory": false,
+        "sellerShippingPrice": 0.99,
+        "channelId": 0
+      },
+      {
+        "listingId": "L202",
+        "productId": 530100,
+        "sellerName": "SellerB",
+        "sellerKey": "seller-b",
+        "price": 0.65,
+        "quantity": 6,
+        "shippingPrice": 1.29,
+        "condition": "Lightly Played",
+        "printing": "Normal",
+        "goldSeller": true,
+        "directInventory": false,
+        "sellerShippingPrice": 1.29,
+        "channelId": 0
+      },
+      {
+        "listingId": "L203",
+        "productId": 530100,
+        "sellerName": "SellerD",
+        "sellerKey": "seller-d",
+        "price": 0.80,
+        "quantity": 10,
+        "shippingPrice": 0.00,
+        "condition": "Lightly Played",
+        "printing": "Normal",
+        "goldSeller": true,
+        "directInventory": false,
+        "sellerShippingPrice": 0.00,
+        "channelId": 0
+      }
+    ]
+  }
+}
