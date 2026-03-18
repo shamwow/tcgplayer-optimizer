@@ -75,7 +75,7 @@ export function Popup() {
       const response: ExtensionMessage = await new Promise(
         (resolve) => {
           chrome.runtime.sendMessage(
-            { type: "OPTIMIZE", items } satisfies ExtensionMessage,
+            { type: "OPTIMIZE", items, verifiedOnly: true } satisfies ExtensionMessage,
             resolve
           );
         }

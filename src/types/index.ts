@@ -107,7 +107,7 @@ export interface CartSummary {
 export type ExtensionMessage =
   | { type: "READ_CART" }
   | { type: "CART_DATA"; items: CartItem[]; summary: CartSummary | null }
-  | { type: "OPTIMIZE"; items: CartItem[] }
+  | { type: "OPTIMIZE"; items: CartItem[]; verifiedOnly: boolean }
   | { type: "OPTIMIZATION_PROGRESS"; stage: string; progress: number; detail?: string }
   | { type: "OPTIMIZATION_RESULT"; result: OptimizationResult }
   | { type: "OPTIMIZATION_ERROR"; error: string };

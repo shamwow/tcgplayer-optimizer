@@ -23,7 +23,7 @@ chrome.runtime.onMessage.addListener(
       return true; // async
     }
     if (message.type === "OPTIMIZE") {
-      handleOptimize(message.items, sendResponse);
+      handleOptimize(message.items, message.verifiedOnly, sendResponse);
       return true; // async
     }
   }
@@ -128,16 +128,25 @@ async function getCartKeyFromCookie(): Promise<string | null> {
 
 async function handleOptimize(
   items: CartItem[],
+  verifiedOnly: boolean,
   sendResponse: (msg: ExtensionMessage) => void
 ) {
   try {
-    console.log(`[TCG Optimizer SW] Starting optimization for ${items.length} items`);
+    console.log(`[TCG Optimizer SW] Starting optimization for ${items.length} items (verifiedOnly: ${verifiedOnly})`);
     const startTime = performance.now();
 
     // Step 1: Fetch listings for all cards (in parallel batches)
     sendProgress("Fetching listings...", 0);
     const allListings = await fetchAllListings(items);
     console.log(`[TCG Optimizer SW] Fetched listings in ${Math.round(performance.now() - startTime)}ms`);
+
+    // Step 1.5: Filter by verified sellers if requested
+    if (verifiedOnly) {
+      for (const [productId, listings] of allListings) {
+        allListings.set(productId, listings.filter((l) => l.verified));
+      }
+      console.log(`[TCG Optimizer SW] Filtered to verified sellers only`);
+    }
 
     // Step 2: Identify skipped cards (no listings found)
     const skippedCards: SkippedCard[] = [];

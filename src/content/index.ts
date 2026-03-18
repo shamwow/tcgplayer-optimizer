@@ -418,7 +418,6 @@ interface OverlayState {
   cartExpanded: boolean;
   // Card 2
   optimizerStage: "loading" | "idle" | "optimizing" | "done";
-  filterCondition: string;
   filterVerified: boolean;
   progress: { stage: string; progress: number };
   result: OptimizationResult | null;
@@ -433,7 +432,6 @@ let state: OverlayState = {
   summary: null,
   cartExpanded: false,
   optimizerStage: "loading",
-  filterCondition: "Near Mint",
   filterVerified: true,
   progress: { stage: "", progress: 0 },
   result: null,
@@ -568,14 +566,6 @@ function renderOptimizerCard(): string {
   if (state.optimizerStage === "idle") {
     // Filter controls
     html += `
-      <div class="filter-row">
-        <span class="filter-label">Min Condition</span>
-        <select class="filter-select" id="tcg-opt-condition">
-          ${["Near Mint", "Lightly Played", "Moderately Played", "Heavily Played", "Damaged"]
-            .map((c) => `<option value="${c}" ${state.filterCondition === c ? "selected" : ""}>${c}</option>`)
-            .join("")}
-        </select>
-      </div>
       <div class="filter-row">
         <span class="filter-label">Verified Sellers Only</span>
         <input type="checkbox" class="toggle-switch" id="tcg-opt-verified" ${state.filterVerified ? "checked" : ""}>
@@ -754,9 +744,6 @@ function bindEvents() {
     render();
   });
 
-  overlayContainer.querySelector("#tcg-opt-condition")?.addEventListener("change", (e) => {
-    state.filterCondition = (e.target as HTMLSelectElement).value;
-  });
 
   overlayContainer.querySelector("#tcg-opt-verified")?.addEventListener("change", (e) => {
     state.filterVerified = (e.target as HTMLInputElement).checked;
@@ -841,7 +828,7 @@ async function runOptimize() {
   try {
     const response: ExtensionMessage = await new Promise((resolve) => {
       chrome.runtime.sendMessage(
-        { type: "OPTIMIZE", items: state.items } satisfies ExtensionMessage,
+        { type: "OPTIMIZE", items: state.items, verifiedOnly: state.filterVerified } satisfies ExtensionMessage,
         resolve
       );
     });
