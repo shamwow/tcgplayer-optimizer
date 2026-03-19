@@ -13,9 +13,11 @@ import type { ModelInput } from "./types";
  * Subject to:
  *   ∀ card c: Σ x[l] where card(l)=c  = 1   (buy every card exactly once)
  *   ∀ listing l: x[l] ≤ y[seller(l)]         (seller active if buying from them)
+ *
+ * Shipping thresholds are handled by post-processing in the solver, not in the ILP.
  */
 export function buildLpModel(input: ModelInput): string {
-  const { cards, listingsPerCard, mode } = input;
+  const { cards, listingsPerCard, mode, sellerShipping: sellerShippingThresholds } = input;
 
   // Collect unique sellers and their shipping costs
   const sellerShipping = new Map<string, number>();
@@ -25,17 +27,22 @@ export function buildLpModel(input: ModelInput): string {
         !sellerShipping.has(listing.sellerKey) ||
         sellerShipping.get(listing.sellerKey)! > listing.shippingCents
       ) {
-        // Use the minimum shipping for each seller (seller-level cost)
         sellerShipping.set(listing.sellerKey, listing.shippingCents);
       }
     }
   }
 
+  // Override shipping from threshold data when available
+  // Use shippingUnderCents as the base (worst-case) shipping
+  if (sellerShippingThresholds) {
+    for (const [sellerKey, threshold] of sellerShippingThresholds) {
+      if (sellerShipping.has(sellerKey)) {
+        sellerShipping.set(sellerKey, threshold.shippingUnderCents);
+      }
+    }
+  }
+
   // For fewest-packages mode, scale costs into the fractional part of the objective
-  // so that seller count (integer part) always dominates.
-  //   min Σ 1·y_s + (1/scale)·(Σ price·x + Σ shipping·y)
-  // where scale > max possible total cost, ensuring all cost terms sum to < 1.
-  // This avoids large big-M coefficients that crash the WASM solver.
   let costScale = 1;
   if (mode === "fewest-packages") {
     let maxTotalCost = 0;
@@ -85,7 +92,6 @@ export function buildLpModel(input: ModelInput): string {
   for (let c = 0; c < cards.length; c++) {
     const terms = listingsPerCard[c].map((_, l) => `x_${c}_${l}`);
     if (terms.length === 0) {
-      // No listings for this card — infeasible
       lines.push(`  card_${c}: x_infeasible_${c} = 1`);
     } else {
       lines.push(`  card_${c}: ${terms.join(" + ")} = 1`);

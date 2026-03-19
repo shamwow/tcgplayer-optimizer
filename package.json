@@ -8,6 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "capture:live-cart-fixture": "node scripts/capture-live-72-card-cart.mjs",
+    "solve": "node scripts/run-optimal-cart.mjs",
+    "optimal-cart": "node scripts/run-optimal-cart.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test"

@@ -7,7 +7,14 @@ import type { ModelInput } from "@/optimizer/types";
  */
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "SOLVE") {
-    const input: ModelInput = message.input;
+    const raw = message.input;
+    // Deserialize sellerShipping from array of entries back to Map
+    const input: ModelInput = {
+      ...raw,
+      sellerShipping: raw.sellerShipping
+        ? new Map(raw.sellerShipping)
+        : undefined,
+    };
     console.log("[TCG Solver Offscreen] Solving model...");
     solve(input)
       .then((result) => {

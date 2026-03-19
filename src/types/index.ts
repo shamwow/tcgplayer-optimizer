@@ -1,3 +1,5 @@
+import type { CliOptimizerInput, CliOptimizerOutput } from "../cli/types";
+
 /** A card the user wants to buy, parsed from the cart DOM */
 export interface CartItem {
   /** Unique identifier within this cart (index-based) */
@@ -34,14 +36,18 @@ export interface SellerListing {
   productId: number;
   /** Seller name */
   sellerName: string;
-  /** Seller key/ID */
+  /** Seller key (hash) */
   sellerKey: string;
+  /** Numeric seller ID */
+  sellerId: number;
   /** Price per unit in cents */
   priceCents: number;
   /** Available quantity from this seller */
   quantity: number;
-  /** Shipping cost in cents for this seller */
+  /** Shipping cost in cents (buyer-facing, includes TCGPlayer markup) */
   shippingCents: number;
+  /** Seller's own shipping cost in cents (may differ from shippingCents due to thresholds) */
+  sellerShippingCents: number;
   /** Whether seller is verified/Gold Star */
   verified: boolean;
   /** Condition of the card */
@@ -122,6 +128,10 @@ export type ExtensionMessage =
   | { type: "UPDATE_CART"; result: OptimizationResult; items: CartItem[] }
   | { type: "UPDATE_CART_RESULT"; success: boolean; error?: string }
   | { type: "UPDATE_CART_PROGRESS"; stage: string; progress: number }
+  | { type: "EXPORT_CLI_INPUT"; items: CartItem[]; verifiedOnly: boolean }
+  | { type: "EXPORT_CLI_INPUT_PROGRESS"; stage: string; progress: number }
+  | { type: "EXPORT_CLI_INPUT_RESULT"; data: CliOptimizerInput }
+  | { type: "APPLY_CLI_OUTPUT"; items: CartItem[]; output: CliOptimizerOutput }
   | { type: "IMPORT_PRODUCTS"; productIds: number[] }
   | { type: "IMPORT_SKUS"; skus: number[] }
   | { type: "IMPORT_PRODUCTS_PROGRESS"; stage: string; progress: number }

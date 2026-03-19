@@ -181,6 +181,96 @@ describe("solver integration", () => {
     console.log(`Large fewest-packages: ${result.activeSellers.size} sellers, ${result.solveTimeMs}ms`);
   }, 30000);
 
+  it("cheapest mode with captured 72-card cart fixture and shipping thresholds", async () => {
+    const fixture = JSON.parse(
+      readFileSync(resolve(__dirname, "../fixtures/live-72-card-cart.json"), "utf8")
+    ) as {
+      summary: { cardCount: number; totalListings: number; uniqueSellers: number; sellersWithThreshold?: number };
+      cards: ModelInput["cards"];
+      listingsPerCard: ModelInput["listingsPerCard"];
+      sellerShipping?: Record<string, { shippingUnderCents: number; shippingOverCents: number; thresholdCents: number }>;
+    };
+
+    console.log(
+      `Captured 72-card test: ${fixture.summary.cardCount} cards, ${fixture.summary.totalListings} total listings, ${fixture.summary.uniqueSellers} unique sellers, ${fixture.summary.sellersWithThreshold ?? 0} with threshold`
+    );
+
+    const sellerShipping = fixture.sellerShipping
+      ? new Map(Object.entries(fixture.sellerShipping))
+      : undefined;
+
+    const input: ModelInput = {
+      cards: fixture.cards,
+      listingsPerCard: fixture.listingsPerCard,
+      mode: "cheapest",
+      sellerShipping,  // passed through for post-processing only
+    };
+    const result = await solve(input);
+    console.log(`[TEST] Error: ${result.errorMessage}`);
+
+    // Build listing lookup: listingId → listing data
+    const listingById = new Map<string, { priceCents: number; shippingCents: number; sellerKey: string }>();
+    for (const listings of fixture.listingsPerCard) {
+      for (const l of listings) {
+        listingById.set(l.listingId, l);
+      }
+    }
+
+    // Compute item cost and per-seller subtotals
+    let itemCostCents = 0;
+    const sellerInfo = new Map<string, { count: number; subtotalCents: number; shippingCents: number }>();
+
+    for (const [, listingId] of result.chosenListings) {
+      const listing = listingById.get(listingId);
+      if (!listing) continue;
+      itemCostCents += listing.priceCents;
+      if (!sellerInfo.has(listing.sellerKey)) {
+        sellerInfo.set(listing.sellerKey, { count: 0, subtotalCents: 0, shippingCents: listing.shippingCents });
+      }
+      const si = sellerInfo.get(listing.sellerKey)!;
+      si.count++;
+      si.subtotalCents += listing.priceCents;
+    }
+
+    // Compute shipping with threshold awareness
+    let shippingWithoutThreshold = 0;
+    let shippingWithThreshold = 0;
+    for (const [sellerKey, info] of sellerInfo) {
+      shippingWithoutThreshold += info.shippingCents;
+
+      const threshold = sellerShipping?.get(sellerKey);
+      if (threshold && info.subtotalCents >= threshold.thresholdCents) {
+        shippingWithThreshold += threshold.shippingOverCents;
+      } else if (threshold) {
+        shippingWithThreshold += threshold.shippingUnderCents;
+      } else {
+        shippingWithThreshold += info.shippingCents;
+      }
+    }
+
+    console.log(
+      `Captured cheapest: status=${result.status}, sellers=${sellerInfo.size}, objective=${result.objectiveValue}, ${result.solveTimeMs}ms`
+    );
+    console.log(`  Item cost: $${(itemCostCents / 100).toFixed(2)}`);
+    console.log(`  Shipping (no thresholds): $${(shippingWithoutThreshold / 100).toFixed(2)}`);
+    console.log(`  Shipping (with thresholds): $${(shippingWithThreshold / 100).toFixed(2)}`);
+    console.log(`  Total (no thresholds): $${((itemCostCents + shippingWithoutThreshold) / 100).toFixed(2)}`);
+    console.log(`  Total (with thresholds): $${((itemCostCents + shippingWithThreshold) / 100).toFixed(2)}`);
+
+    // Show top sellers by item count
+    const sorted = [...sellerInfo.entries()].sort((a, b) => b[1].count - a[1].count);
+    console.log(`\n  Top sellers:`);
+    for (const [key, info] of sorted.slice(0, 10)) {
+      const threshold = sellerShipping?.get(key);
+      const ship = threshold && info.subtotalCents >= threshold.thresholdCents
+        ? threshold.shippingOverCents : (threshold?.shippingUnderCents ?? info.shippingCents);
+      console.log(`    ${key}: ${info.count} items, subtotal=$${(info.subtotalCents / 100).toFixed(2)}, ship=$${(ship / 100).toFixed(2)}${threshold && info.subtotalCents >= threshold.thresholdCents ? ' (threshold met)' : ''}`);
+    }
+
+    expect(result.status).toBe("Optimal");
+    expect(sellerInfo.size).toBeGreaterThan(0);
+  }, 180000);
+
   it("fewest-packages mode with captured 72-card cart fixture", async () => {
     const fixture = JSON.parse(
       readFileSync(resolve(__dirname, "../fixtures/live-72-card-cart.json"), "utf8")

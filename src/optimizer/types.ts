@@ -1,3 +1,13 @@
+/** Per-seller shipping threshold info */
+export interface SellerShippingThreshold {
+  /** Shipping cost in cents when seller subtotal is below threshold */
+  shippingUnderCents: number;
+  /** Shipping cost in cents when seller subtotal meets/exceeds threshold */
+  shippingOverCents: number;
+  /** Threshold in cents — subtotal at or above this gets the lower rate */
+  thresholdCents: number;
+}
+
 /** Input to the LP model builder */
 export interface ModelInput {
   /** Cards the user wants to buy */
@@ -11,6 +21,8 @@ export interface ModelInput {
   listingsPerCard: ListingForModel[][];
   /** Optimization mode (default: "cheapest") */
   mode?: "cheapest" | "fewest-packages";
+  /** Per-seller shipping threshold info (keyed by sellerKey) */
+  sellerShipping?: Map<string, SellerShippingThreshold>;
 }
 
 /** A listing as consumed by the model builder */

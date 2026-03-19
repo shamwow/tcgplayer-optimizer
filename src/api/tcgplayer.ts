@@ -8,7 +8,7 @@ import { TtlCache } from "./cache";
 
 const API_BASE = "https://mp-search-api.tcgplayer.com/v1";
 const PAGE_SIZE = 50;
-const MAX_LISTINGS_PER_SORT = 200;
+const MAX_LISTINGS_PER_SORT = 100;
 
 const rateLimiter = new RateLimiter(5);
 
@@ -168,7 +168,7 @@ function buildSearchRequest(
 }
 
 function mapApiListing(
-  result: { listingId: number; sellerName: string; sellerKey: string; price: number; quantity: number; shippingPrice: number; sellerShippingPrice: number; condition: string; printing: string; goldSeller: boolean; channelId: number },
+  result: { listingId: number; sellerId: string; sellerName: string; sellerKey: string; price: number; quantity: number; shippingPrice: number; sellerShippingPrice: number; condition: string; printing: string; goldSeller: boolean; channelId: number },
   productId: number
 ): SellerListing {
   return {
@@ -176,10 +176,14 @@ function mapApiListing(
     productId,
     sellerName: result.sellerName,
     sellerKey: result.sellerKey,
+    sellerId: parseInt(result.sellerId) || 0,
     priceCents: Math.round(result.price * 100),
     quantity: result.quantity,
     shippingCents: Math.round(
       (result.shippingPrice ?? result.sellerShippingPrice ?? 0) * 100
+    ),
+    sellerShippingCents: Math.round(
+      (result.sellerShippingPrice ?? result.shippingPrice ?? 0) * 100
     ),
     verified: result.goldSeller,
     condition: result.condition,

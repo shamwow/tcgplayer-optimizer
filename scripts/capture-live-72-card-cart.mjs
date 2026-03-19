@@ -1,18 +1,27 @@
-// This script is used to capture a snapshot of live TCGPlayer listings for a specific set of product IDs, 
-// simulating a "cart" with 72 cards.
-// 
-// The data is then to be used in tests (so that each run isn't stuck fetching data from the live API)
+// This script captures a snapshot of live TCGPlayer listings for a specific set of product IDs,
+// simulating a "cart" with 72 cards. It also fetches seller shipping thresholds.
 //
+// The data is then used in tests (so that each run isn't stuck fetching data from the live API).
 // Meant to speed up iteration on the optimizer.
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 const API_BASE = "https://mp-search-api.tcgplayer.com/v1";
+const MPAPI_BASE = "https://mpapi.tcgplayer.com/v2";
 const PAGE_SIZE = 50;
-const MAX_LISTINGS_PER_CARD = 200;
+const MAX_LISTINGS_PER_SORT = 100;
 const FETCH_CONCURRENCY = 5;
 const OUTPUT_PATH = resolve("test/fixtures/live-72-card-cart.json");
+
+const HEADERS = {
+  "Content-Type": "application/json",
+  Accept: "application/json",
+  "User-Agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  Origin: "https://www.tcgplayer.com",
+  Referer: "https://www.tcgplayer.com/",
+};
 
 const productIds = [
   191577, 79991, 240223, 239783, 254197, 222169, 272617, 235949, 253134, 507303,
@@ -36,6 +45,7 @@ async function main() {
     currentPriceCents: 500,
   }));
 
+  // Step 1: Fetch listings with dual-sort strategy
   const listingsPerCard = new Array(productIds.length);
   let completed = 0;
   let active = 0;
@@ -46,7 +56,7 @@ async function main() {
       while (active < FETCH_CONCURRENCY && nextIndex < productIds.length) {
         const index = nextIndex++;
         active++;
-        fetchListings(productIds[index])
+        fetchListingsDual(productIds[index])
           .then((listings) => {
             listingsPerCard[index] = listings;
             completed++;
@@ -70,7 +80,64 @@ async function main() {
   });
 
   const totalListings = listingsPerCard.reduce((sum, listings) => sum + listings.length, 0);
-  const uniqueSellers = new Set(listingsPerCard.flatMap((listings) => listings.map((listing) => listing.sellerKey))).size;
+  const allSellerIds = new Map(); // sellerKey → sellerId
+  for (const listings of listingsPerCard) {
+    for (const l of listings) {
+      if (l.sellerId > 0 && !allSellerIds.has(l.sellerKey)) {
+        allSellerIds.set(l.sellerKey, l.sellerId);
+      }
+    }
+  }
+  const uniqueSellers = allSellerIds.size;
+  console.log(`[fixture] Fetched ${totalListings} listings from ${uniqueSellers} unique sellers`);
+
+  // Step 2: Fetch seller shipping thresholds
+  console.log(`[fixture] Fetching shipping thresholds for ${uniqueSellers} sellers...`);
+  const sellerShipping = {};
+  const sellerList = Array.from(allSellerIds.values()).map((sellerId) => ({
+    sellerId,
+    largestShippingCategoryId: 1,
+  }));
+
+  // Batch in groups of 100
+  for (let i = 0; i < sellerList.length; i += 100) {
+    const batch = sellerList.slice(i, i + 100);
+    try {
+      const res = await fetch(`${MPAPI_BASE}/seller/shippinginfo?countryCode=US`, {
+        method: "POST",
+        headers: HEADERS,
+        body: JSON.stringify(batch),
+      });
+      if (!res.ok) {
+        console.warn(`[fixture] Shipping info batch ${i}-${i + batch.length} failed: HTTP ${res.status}`);
+        continue;
+      }
+      const data = await res.json();
+      const infos = data.results?.flat() ?? [];
+      for (const info of infos) {
+        const standard = info.sellerShippingOptions?.find(
+          (opt) => opt.shippingMethodCode === "TCGFIRSTCLASS"
+        );
+        if (standard) {
+          sellerShipping[info.sellerKey] = {
+            shippingUnderCents: Math.round((standard.shippingPriceUnderThreshold ?? standard.price ?? 0) * 100),
+            shippingOverCents: Math.round((standard.shippingPriceOverThreshold ?? standard.price ?? 0) * 100),
+            thresholdCents: Math.round((standard.thresholdPrice ?? 0) * 100),
+          };
+        }
+      }
+      console.log(`[fixture] Shipping batch ${i}-${i + batch.length}: ${infos.length} responses`);
+    } catch (err) {
+      console.warn(`[fixture] Shipping info batch ${i} error:`, err.message);
+    }
+  }
+
+  console.log(`[fixture] Got shipping thresholds for ${Object.keys(sellerShipping).length} sellers`);
+
+  // Strip sellerId from listings for output (not needed by solver)
+  const listingsForOutput = listingsPerCard.map((listings) =>
+    listings.map(({ sellerId, ...rest }) => rest)
+  );
 
   const fixture = {
     capturedAt: startedAt,
@@ -84,35 +151,32 @@ async function main() {
       cardCount: cards.length,
       totalListings,
       uniqueSellers,
+      sellersWithThreshold: Object.values(sellerShipping).filter(
+        (s) => s.shippingUnderCents > s.shippingOverCents
+      ).length,
     },
     cards,
-    listingsPerCard,
+    listingsPerCard: listingsForOutput,
+    sellerShipping,
   };
 
   await mkdir(dirname(OUTPUT_PATH), { recursive: true });
   await writeFile(OUTPUT_PATH, `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
   console.log(
-    `[fixture] Wrote ${cards.length} cards, ${totalListings} listings, ${uniqueSellers} sellers to ${OUTPUT_PATH}`
+    `[fixture] Wrote ${cards.length} cards, ${totalListings} listings, ${uniqueSellers} sellers, ${Object.keys(sellerShipping).length} shipping thresholds to ${OUTPUT_PATH}`
   );
 }
 
-async function fetchListings(productId) {
+async function fetchListingsSorted(productId, sortField) {
   const allListings = [];
   let from = 0;
   let totalResults = Infinity;
 
-  while (from < totalResults && allListings.length < MAX_LISTINGS_PER_CARD) {
+  while (from < totalResults && allListings.length < MAX_LISTINGS_PER_SORT) {
     const response = await fetch(`${API_BASE}/product/${productId}/listings`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        Origin: "https://www.tcgplayer.com",
-        Referer: "https://www.tcgplayer.com/",
-      },
-      body: JSON.stringify(buildSearchRequest(from, PAGE_SIZE)),
+      headers: HEADERS,
+      body: JSON.stringify(buildSearchRequest(from, PAGE_SIZE, sortField)),
     });
 
     if (!response.ok) {
@@ -122,34 +186,50 @@ async function fetchListings(productId) {
 
     const data = await response.json();
     const resultSet = data.results?.[0];
-    if (!resultSet) {
-      break;
-    }
+    if (!resultSet) break;
 
     totalResults = resultSet.totalResults;
     const listings = resultSet.results
-      .filter((listing) => listing.goldSeller)
-      .map((listing) => ({
-        listingId: String(listing.listingId),
-        sellerKey: listing.sellerKey,
-        priceCents: Math.round(listing.price * 100),
-        shippingCents: Math.round((listing.shippingPrice ?? listing.sellerShippingPrice ?? 0) * 100),
+      .filter((l) => l.goldSeller && l.channelId !== 1)
+      .map((l) => ({
+        listingId: String(l.listingId),
+        sellerKey: l.sellerKey,
+        sellerId: parseInt(l.sellerId) || 0,
+        priceCents: Math.round(l.price * 100),
+        shippingCents: Math.round((l.shippingPrice ?? l.sellerShippingPrice ?? 0) * 100),
       }));
 
     allListings.push(...listings);
     from += PAGE_SIZE;
   }
 
-  return allListings.slice(0, MAX_LISTINGS_PER_CARD);
+  return allListings.slice(0, MAX_LISTINGS_PER_SORT);
 }
 
-function buildSearchRequest(from, size) {
+async function fetchListingsDual(productId) {
+  const byTotal = await fetchListingsSorted(productId, "price+shipping");
+  const byPrice = await fetchListingsSorted(productId, "price");
+
+  // Merge and deduplicate by sellerKey
+  const seen = new Set();
+  const merged = [];
+  for (const l of [...byTotal, ...byPrice]) {
+    if (!seen.has(l.sellerKey)) {
+      seen.add(l.sellerKey);
+      merged.push(l);
+    }
+  }
+  return merged;
+}
+
+function buildSearchRequest(from, size, sortField = "price+shipping") {
   return {
     filters: {
       term: {
         condition: ["Near Mint"],
         printing: ["Normal"],
         sellerStatus: ["Live"],
+        language: ["English"],
       },
       range: {},
       exclude: {},
@@ -157,7 +237,7 @@ function buildSearchRequest(from, size) {
     from,
     size,
     sort: {
-      field: "price+shipping",
+      field: sortField,
       order: "asc",
     },
     context: {

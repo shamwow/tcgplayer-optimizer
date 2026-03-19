@@ -91,6 +91,9 @@ interface SellerShippingInfo {
     shippingMethodCode: string;
     name: string;
     price: number;
+    thresholdPrice?: number;
+    shippingPriceUnderThreshold?: number;
+    shippingPriceOverThreshold?: number;
   }>;
 }
 
