@@ -1,6 +1,7 @@
 import type { CartItem, CartSummary, ExtensionMessage } from "@/types";
 import { matchCliOutputToItems, parseCliOptimizerOutput } from "@/cli/exchange";
 import type { CliOptimizerOutput } from "@/cli/types";
+import { replaceHtmlPreservingScroll } from "./render-utils";
 
 /**
  * Content script injected on tcgplayer.com/cart pages.
@@ -662,7 +663,7 @@ function render() {
   }
 
   html += `</div>`;
-  overlayContainer.innerHTML = html;
+  replaceHtmlPreservingScroll(overlayContainer, html);
   bindEvents();
 }
 
