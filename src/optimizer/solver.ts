@@ -1,4 +1,5 @@
 import type { ModelInput, SolverResult } from "./types";
+import { solveFewestPackagesExact } from "./fewest-packages";
 import { buildLpModel, buildVariableMap } from "./model";
 
 // highs-js types
@@ -64,27 +65,26 @@ export async function solve(input: ModelInput): Promise<SolverResult> {
     };
   }
 
-  // For fewest-packages mode, limit listings per card to keep the LP model
-  // small enough for the WASM solver. We keep the cheapest listings per card
-  // (sorted by price + shipping) since that's sufficient for finding good
-  // seller consolidation while keeping the model tractable.
-  const MAX_LISTINGS_FEWEST = 30;
-  if (input.mode === "fewest-packages") {
-    for (let i = 0; i < filteredListings.length; i++) {
-      if (filteredListings[i].length > MAX_LISTINGS_FEWEST) {
-        // Sort by total cost (price + shipping) and keep cheapest
-        filteredListings[i] = [...filteredListings[i]]
-          .sort((a, b) => (a.priceCents + a.shippingCents) - (b.priceCents + b.shippingCents))
-          .slice(0, MAX_LISTINGS_FEWEST);
-      }
-    }
-  }
-
   const filteredInput: ModelInput = {
     cards: filteredCards,
     listingsPerCard: filteredListings,
     mode: input.mode,
   };
+
+  if (filteredInput.mode === "fewest-packages") {
+    try {
+      return solveFewestPackagesExact(filteredInput, startTime);
+    } catch (err) {
+      return {
+        status: "Error",
+        objectiveValue: 0,
+        chosenListings: new Map(),
+        activeSellers: new Set(),
+        solveTimeMs: Math.round(performance.now() - startTime),
+        errorMessage: err instanceof Error ? err.message : "Seller search failed",
+      };
+    }
+  }
 
   // Build the LP model
   const lpString = buildLpModel(filteredInput);

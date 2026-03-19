@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "fs";
+import { resolve } from "path";
 import { solve } from "../../src/optimizer/solver";
 import type { ModelInput } from "../../src/optimizer/types";
 
@@ -118,9 +120,39 @@ describe("solver integration", () => {
     const result = await solve(input);
     expect(result.status).toBe("Optimal");
     // Should consolidate to 1 seller (SellerC) despite higher card cost
+    expect(result.objectiveValue).toBe(150);
     expect(result.activeSellers.size).toBe(1);
     expect(result.chosenListings.get(0)).toBe("C0");
     expect(result.chosenListings.get(1)).toBe("C1");
+  }, 10000);
+
+  it("fewest-packages mode breaks seller-count ties by total cost", async () => {
+    const input: ModelInput = {
+      cards: [
+        { cartIndex: 0, productId: 1, name: "Card 0", currentPriceCents: 100 },
+        { cartIndex: 1, productId: 2, name: "Card 1", currentPriceCents: 100 },
+      ],
+      listingsPerCard: [
+        [
+          { listingId: "A0", sellerKey: "a", priceCents: 10, shippingCents: 100 },
+          { listingId: "B0", sellerKey: "b", priceCents: 30, shippingCents: 10 },
+          { listingId: "C0", sellerKey: "c", priceCents: 1, shippingCents: 0 },
+        ],
+        [
+          { listingId: "A1", sellerKey: "a", priceCents: 10, shippingCents: 100 },
+          { listingId: "B1", sellerKey: "b", priceCents: 30, shippingCents: 10 },
+          { listingId: "D1", sellerKey: "d", priceCents: 1, shippingCents: 0 },
+        ],
+      ],
+      mode: "fewest-packages",
+    };
+
+    const result = await solve(input);
+    expect(result.status).toBe("Optimal");
+    expect(result.objectiveValue).toBe(70);
+    expect(result.activeSellers.size).toBe(1);
+    expect(result.chosenListings.get(0)).toBe("B0");
+    expect(result.chosenListings.get(1)).toBe("B1");
   }, 10000);
 
   it("fewest-packages mode handles many sellers without crashing", async () => {
@@ -149,45 +181,28 @@ describe("solver integration", () => {
     console.log(`Large fewest-packages: ${result.activeSellers.size} sellers, ${result.solveTimeMs}ms`);
   }, 30000);
 
-  it("fewest-packages mode with real 72-card cart", async () => {
-    // Real cart product IDs that previously crashed the solver
-    const productIds = [
-      191577,79991,240223,239783,254197,222169,272617,235949,253134,507303,
-      108336,591685,222101,15012,495636,533010,251179,105594,13696,634189,
-      590836,524983,526197,559751,221932,162901,590441,577156,240145,191041,
-      457983,553232,498684,616070,79918,577795,581269,609749,36242,196428,
-      520020,492676,581991,233772,519220,505368,222102,552327,624916,582778,
-      642024,5481,206690,517246,240154,235658,238617,128877,162224,199417,
-      552794,180808,531115,624158,590828,624156,559505,262058,276478,503372,
-      609763,559643,
-    ];
+  it("fewest-packages mode with captured 72-card cart fixture", async () => {
+    const fixture = JSON.parse(
+      readFileSync(resolve(__dirname, "../fixtures/live-72-card-cart.json"), "utf8")
+    ) as {
+      summary: { cardCount: number; totalListings: number; uniqueSellers: number };
+      cards: ModelInput["cards"];
+      listingsPerCard: ModelInput["listingsPerCard"];
+    };
 
-    const { fetchListings } = await import("../../src/api/tcgplayer");
+    console.log(
+      `Captured 72-card test: ${fixture.summary.cardCount} cards, ${fixture.summary.totalListings} total listings, ${fixture.summary.uniqueSellers} unique sellers`
+    );
 
-    const cards = productIds.map((pid, i) => ({
-      cartIndex: i, productId: pid, name: `Product ${pid}`, currentPriceCents: 500,
-    }));
-
-    const listingsPerCard = [];
-    for (const pid of productIds) {
-      const listings = await fetchListings(pid, "Near Mint", "Normal");
-      listingsPerCard.push(
-        listings.map((l) => ({
-          listingId: l.listingId,
-          sellerKey: l.sellerKey,
-          priceCents: l.priceCents,
-          shippingCents: l.shippingCents,
-        }))
-      );
-    }
-
-    const totalListings = listingsPerCard.reduce((s, l) => s + l.length, 0);
-    const uniqueSellers = new Set(listingsPerCard.flatMap(l => l.map(x => x.sellerKey))).size;
-    console.log(`Live 72-card test: ${productIds.length} cards, ${totalListings} total listings, ${uniqueSellers} unique sellers`);
-
-    const input: ModelInput = { cards, listingsPerCard, mode: "fewest-packages" };
+    const input: ModelInput = {
+      cards: fixture.cards,
+      listingsPerCard: fixture.listingsPerCard,
+      mode: "fewest-packages",
+    };
     const result = await solve(input);
-    console.log(`Live fewest-packages: status=${result.status}, error=${result.errorMessage}, sellers=${result.activeSellers.size}, objective=${result.objectiveValue}, ${result.solveTimeMs}ms`);
+    console.log(
+      `Captured fewest-packages: status=${result.status}, error=${result.errorMessage}, sellers=${result.activeSellers.size}, objective=${result.objectiveValue}, ${result.solveTimeMs}ms`
+    );
     expect(result.status).toBe("Optimal");
     expect(result.activeSellers.size).toBeGreaterThan(0);
   }, 180000);
