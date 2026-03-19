@@ -14,7 +14,7 @@ There are two components:
 
 The extension adds an overlay to the page which has an outline of the steps which you'll need to go through:
 
-![UI](public/ui.png)
+<img width="418" height="969" alt="ui" src="https://github.com/user-attachments/assets/dc0f06ec-0111-4a16-9075-807149675fa1" />
 
 1. **Export** — The extension reads your cart and fetches all available seller listings for each item, then downloads a JSON file.
 2. **Solve** — You run the solver locally via the CLI to compute the cheapest combination of sellers.
