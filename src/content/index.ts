@@ -55,6 +55,30 @@ interface OverlayState {
   importedOutput: CliOptimizerOutput | null;
   reviewData: ImportedReviewData | null;
   reviewExpanded: boolean;
+  pageItemCount: number;
+}
+
+let syncCheckInterval: ReturnType<typeof setInterval> | null = null;
+
+const SYNC_CHECK_INTERVAL_MS = 3000;
+
+function startSyncCheck() {
+  if (syncCheckInterval) return;
+  syncCheckInterval = setInterval(() => {
+    if (state.importStage === "applying") return;
+    const count = document.querySelectorAll('.package-item').length;
+    if (count !== state.pageItemCount) {
+      state.pageItemCount = count;
+      render();
+    }
+  }, SYNC_CHECK_INTERVAL_MS);
+}
+
+function stopSyncCheck() {
+  if (syncCheckInterval) {
+    clearInterval(syncCheckInterval);
+    syncCheckInterval = null;
+  }
 }
 
 const state: OverlayState = {
@@ -75,6 +99,7 @@ const state: OverlayState = {
   importedOutput: null,
   reviewData: null,
   reviewExpanded: false,
+  pageItemCount: 0,
 };
 
 let overlayContainer: HTMLDivElement | null = null;
@@ -446,6 +471,7 @@ function getOverlayStyles(): string {
       background: #e2e8f0;
       border-radius: 999px;
       overflow: hidden;
+      margin-bottom: 12px;
     }
     .progress-fill {
       height: 100%;
@@ -613,8 +639,7 @@ function render() {
   }
 
   if (state.cartLoaded && state.items.length > 0) {
-    const pageItemCount = document.querySelectorAll('.package-item').length;
-    if (pageItemCount > 0 && pageItemCount !== state.items.length) {
+    if (state.pageItemCount > 0 && state.pageItemCount !== state.items.length) {
       html += `
         <div class="warning-box">
           <span>Cart may be out of sync with the page.</span>
@@ -1446,13 +1471,16 @@ chrome.runtime.onMessage.addListener(
       overlayContainer = container;
       state.visible = true;
       chrome.storage.local.remove("overlayDismissed");
+      startSyncCheck();
       void readCart();
     } else {
       state.visible = !state.visible;
       if (state.visible) {
         chrome.storage.local.remove("overlayDismissed");
+        startSyncCheck();
       } else {
         chrome.storage.local.set({ overlayDismissed: true });
+        stopSyncCheck();
       }
       render();
     }
@@ -1472,6 +1500,7 @@ if (isCartPage) {
 
     const { container } = createOverlay();
     overlayContainer = container;
+    startSyncCheck();
     void readCart();
   });
 }
