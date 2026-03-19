@@ -7,7 +7,7 @@ import {
 } from "../../src/api/cart";
 
 /**
- * Integration test: compare current cart vs optimized cart costs.
+ * Verification test: compare current cart vs optimized cart costs.
  * Checks if the "optimized" cart is actually cheaper, and investigates
  * whether the current cart sellers have channelId=1 listings.
  */

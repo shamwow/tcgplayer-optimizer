@@ -8,7 +8,7 @@ import {
 } from "../../src/api/cart";
 
 /**
- * Debug integration test for SKU 4071040, seller 41de3db8, price $0.05
+ * Debug verification test for SKU 4071040, seller 41de3db8, price $0.05
  * which fails with CartItemQuantityNotAvailable.
  *
  * This test checks:

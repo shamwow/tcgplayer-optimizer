@@ -9,7 +9,7 @@ import {
 import { fetchCheapestListings } from "../../src/api/tcgplayer";
 
 /**
- * Integration test for importing by SKU 7673181.
+ * Verification test for importing by SKU 7673181.
  *
  * Mirrors the handleImportSkus flow:
  *   1. Look up product details for the SKU (productId, condition, printing)

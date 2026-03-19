@@ -8,7 +8,7 @@ import {
 import { fetchCheapestListings } from "../../src/api/tcgplayer";
 
 /**
- * Integration test for importing product 609749.
+ * Verification test for importing product 609749.
  *
  * Product has:
  * - Normal: top 2 listings are PHANTOM (ch:1, dirInv:0), first valid is #3

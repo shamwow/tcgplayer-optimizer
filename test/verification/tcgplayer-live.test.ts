@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { fetchListings, listingsCache } from "../../src/api/tcgplayer";
 
 /**
- * Live integration tests against TCGPlayer's mp-search-api.
+ * Live verification tests against TCGPlayer's mp-search-api.
  *
  * These tests hit the real TCGPlayer API. They verify:
  * - API is reachable and returns expected response shape

@@ -8,7 +8,7 @@ import {
 import { fetchCheapestListing, fetchListings } from "../../src/api/tcgplayer";
 
 /**
- * Debug integration test for product 559643 which fails to import.
+ * Debug verification test for product 559643 which fails to import.
  *
  * This test replicates the exact import flow:
  * 1. Fetch listings to examine what's available

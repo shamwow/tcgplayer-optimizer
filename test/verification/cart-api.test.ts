@@ -11,7 +11,7 @@ import {
 } from "../../src/api/cart";
 
 /**
- * Live integration tests for the TCGPlayer cart API.
+ * Live verification tests for the TCGPlayer cart API.
  *
  * These tests exercise the full cart lifecycle against the real API:
  * 1. Create anonymous cart

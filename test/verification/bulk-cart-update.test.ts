@@ -7,7 +7,7 @@ import {
 } from "../../src/api/cart";
 
 /**
- * Integration test: bulk add 72 items to cart.
+ * Verification test: bulk add 72 items to cart.
  * Mirrors the handleUpdateCart flow after optimization.
  * Each entry is: sku, sellerKey, channelId
  */
