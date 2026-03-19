@@ -44,7 +44,9 @@ function getOverlayStyles(): string {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       font-size: 13px;
       color: #1a1a1a;
-      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
       transition: transform 0.25s ease;
     }
     #tcg-optimizer-root.hidden {
@@ -56,11 +58,16 @@ function getOverlayStyles(): string {
       justify-content: space-between;
       padding: 14px 16px;
       border-bottom: 1px solid #e5e7eb;
-      background: #1a3a5c;
+      background: #2563eb;
       color: white;
       position: sticky;
       top: 0;
       z-index: 1;
+    }
+    .panel-header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
     .panel-header h1 {
       margin: 0;
@@ -80,6 +87,8 @@ function getOverlayStyles(): string {
     .close-btn:hover { opacity: 1; }
     .panel-body {
       padding: 12px;
+      flex: 1;
+      overflow-y: auto;
     }
 
     /* Card system */
@@ -257,6 +266,32 @@ function getOverlayStyles(): string {
       color: #dc2626;
       font-size: 12px;
     }
+    .warning-box {
+      background: #fffbeb;
+      border: 1px solid #fef08a;
+      border-radius: 6px;
+      padding: 10px;
+      margin-bottom: 12px;
+      color: #92400e;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .warning-reload-btn {
+      background: #f59e0b;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .warning-reload-btn:hover { background: #d97706; }
     .status-text {
       color: #666;
       font-size: 12px;
@@ -431,6 +466,60 @@ function getOverlayStyles(): string {
     }
     .copy-btn:hover { background: #0f2940; }
     .copy-btn.copied { background: #16a34a; }
+
+    /* Debug bar fixed at bottom */
+    .debug-bar {
+      border-top: 1px solid #d1d5db;
+      padding: 10px 12px;
+      background: #f9fafb;
+      flex-shrink: 0;
+    }
+    .debug-bar-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .debug-icon {
+      flex-shrink: 0;
+      min-width: 14px;
+      min-height: 14px;
+    }
+    .debug-link {
+      background: none;
+      border: none;
+      color: #9ca3af;
+      font-size: 10px;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .debug-link:hover { color: #6b7280; }
+    .import-area {
+      margin-top: 8px;
+    }
+    .import-textarea {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 12px;
+      font-family: monospace;
+      resize: vertical;
+      min-height: 60px;
+      box-sizing: border-box;
+    }
+    .import-btn {
+      margin-top: 6px;
+      width: 100%;
+      padding: 12px 16px;
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .import-btn:hover { background: #1d4ed8; }
   `;
 }
 
@@ -441,6 +530,7 @@ interface OverlayState {
   error: string | null;
   // Card 1
   cartLoaded: boolean;
+  importing: boolean;
   items: CartItem[];
   summary: CartSummary | null;
   cartExpanded: boolean;
@@ -451,12 +541,14 @@ interface OverlayState {
   progress: { stage: string; progress: number };
   result: OptimizationResult | null;
   resultsExpanded: boolean;
+  importExpanded: boolean;
 }
 
 let state: OverlayState = {
   visible: true,
   error: null,
   cartLoaded: false,
+  importing: false,
   items: [],
   summary: null,
   cartExpanded: false,
@@ -466,6 +558,7 @@ let state: OverlayState = {
   progress: { stage: "", progress: 0 },
   result: null,
   resultsExpanded: false,
+  importExpanded: false,
 };
 
 let overlayContainer: HTMLDivElement | null = null;
@@ -481,7 +574,12 @@ function render() {
 
   let html = `
     <div class="panel-header">
-      <h1>Cart Optimizer</h1>
+      <div class="panel-header-left">
+        <svg width="22" height="22" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M88.7774 21.7025C89.9579 18.9613 89.0776 15.76 86.6566 13.9993C84.2356 12.2385 80.9342 12.3986 78.6733 14.3594L27.452 59.178C25.4512 60.9387 24.7309 63.7599 25.6713 66.2409C26.6117 68.722 29.0127 70.4026 31.6738 70.4026H53.983L38.5966 106.298C37.4162 109.039 38.2965 112.24 40.7175 114.001C43.1385 115.761 46.4399 115.601 48.7008 113.641L99.9221 68.822C101.923 67.0613 102.643 64.2401 101.703 61.7591C100.762 59.278 98.3814 57.6174 95.7003 57.6174H73.3911L88.7774 21.7025Z" fill="#FBBF24"/>
+        </svg>
+        <h1>Cart Optimizer</h1>
+      </div>
       <button class="close-btn" id="tcg-opt-close">&times;</button>
     </div>
     <div class="panel-body">
@@ -491,8 +589,37 @@ function render() {
     html += `<div class="error-box">${escHtml(state.error)}</div>`;
   }
 
+  // Compare loaded items with what's on the page
+  if (state.cartLoaded && state.items.length > 0) {
+    const pageItemCount = document.querySelectorAll('[data-testid="cartItem"]').length;
+    if (pageItemCount > 0 && pageItemCount !== state.items.length) {
+      html += `<div class="warning-box">
+        <span>Cart may be out of sync</span>
+        <button class="warning-reload-btn" id="tcg-opt-reload">Reload</button>
+      </div>`;
+    }
+  }
+
   if (!state.cartLoaded) {
-    html += `<div class="status-text">Reading cart...</div>`;
+    if (state.importing) {
+      const pct = Math.round(state.progress.progress * 100);
+      html += `
+        <div class="card">
+          <div class="card-title">Importing Products</div>
+          <div class="card-body">
+            <div class="progress">
+              <div class="progress-info">
+                <span>${escHtml(state.progress.stage)}</span>
+                <span>${pct}%</span>
+              </div>
+              <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+            </div>
+          </div>
+        </div>
+      `;
+    } else {
+      html += `<div class="status-text">Reading cart...</div>`;
+    }
   } else if (state.items.length === 0) {
     html += `<div class="status-text">Your cart is empty. Add items to your cart and reload.</div>`;
   } else {
@@ -501,14 +628,31 @@ function render() {
 
     // --- Card 2: Optimizer ---
     html += renderOptimizerCard();
-
-    // Debug: export product IDs
-    html += `<div style="margin-top:12px;text-align:center">`;
-    html += `<button id="tcg-opt-export-debug" style="background:none;border:none;color:#9ca3af;font-size:10px;cursor:pointer;text-decoration:underline">Export Product IDs</button>`;
-    html += `</div>`;
   }
 
+  html += `</div>`; // panel-body
+
+  // Debug bar fixed at bottom
+  html += `<div class="debug-bar">`;
+  html += `<div class="debug-bar-actions">`;
+  html += `<svg class="debug-icon" width="14" height="14" viewBox="0 0 512 512" fill="#9ca3af" stroke="#9ca3af" stroke-width="0"><path d="M256 0c53 0 96 43 96 96l0 3.6c0 15.7-12.7 28.4-28.4 28.4l-135.1 0c-15.7 0-28.4-12.7-28.4-28.4l0-3.6c0-53 43-96 96-96zM41.4 105.4c12.5-12.5 32.8-12.5 45.3 0l64 64c.7 .7 1.3 1.4 1.9 2.1c14.2-7.3 30.4-11.4 47.5-11.4l112 0c17.1 0 33.2 4.1 47.5 11.4c.6-.7 1.2-1.4 1.9-2.1l64-64c12.5-12.5 32.8-12.5 45.3 0s12.5 32.8 0 45.3l-64 64c-.7 .7-1.4 1.3-2.1 1.9c6.2 12 10.1 25.3 11.1 39.5l64.3 0c17.7 0 32 14.3 32 32s-14.3 32-32 32l-64 0c0 24.6-5.5 47.8-15.4 68.6c2.2 1.3 4.2 2.9 6 4.8l64 64c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0l-63.1-63.1c-24.5 21.8-55.8 36.2-90.3 39.6L272 240c0-8.8-7.2-16-16-16s-16 7.2-16 16l0 239.2c-34.5-3.4-65.8-17.8-90.3-39.6L86.6 502.6c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3l64-64c1.9-1.9 3.9-3.4 6-4.8C101.5 367.8 96 344.6 96 320l-64 0c-17.7 0-32-14.3-32-32s14.3-32 32-32l64.3 0c1.1-14.1 5-27.5 11.1-39.5c-.7-.6-1.4-1.2-2.1-1.9l-64-64c-12.5-12.5-12.5-32.8 0-45.3z"/></svg>`;
+  if (state.cartLoaded && state.items.length > 0) {
+    html += `<button class="debug-link" id="tcg-opt-export-debug">Export SKUs</button>`;
+    html += `<button class="debug-link" id="tcg-opt-export-cart">Export Cart</button>`;
+  }
+  if (state.result) {
+    html += `<button class="debug-link" id="tcg-opt-export-optimized">Export Optimized Cart</button>`;
+  }
+  html += `<button class="debug-link" id="tcg-opt-import-toggle">Import SKUs</button>`;
   html += `</div>`;
+  if (state.importExpanded) {
+    html += `<div class="import-area">`;
+    html += `<textarea class="import-textarea" id="tcg-opt-import-input" placeholder="Paste comma-separated SKUs, e.g. 12345, 67890, 11111"></textarea>`;
+    html += `<button class="import-btn" id="tcg-opt-import-load">Load Products</button>`;
+    html += `</div>`;
+  }
+  html += `</div>`;
+
   overlayContainer.innerHTML = html;
   bindEvents();
 }
@@ -518,17 +662,13 @@ function renderCartCard(): string {
   const items = state.items;
 
   // Derive fallback values from items
-  const sellerCount = s
-    ? s.sellerCount
-    : new Set(items.map((i) => i.currentSeller)).size;
-  const itemCount = s ? s.itemCount : items.length;
-  const cartCostCents = s
-    ? s.cartCostCents
-    : items.reduce((sum, i) => sum + i.currentPriceCents, 0);
+  const sellerCount = new Set(items.map((i) => i.currentSeller)).size;
+  const itemCount = items.length;
   const shippingCents = s ? s.shippingCostCents : null;
-  const totalCents = shippingCents !== null
-    ? cartCostCents + shippingCents
-    : cartCostCents;
+  const cartCostCents = s
+    ? s.cartCostCents - (shippingCents ?? 0)
+    : items.reduce((sum, i) => sum + i.currentPriceCents, 0);
+  const totalCents = s ? s.cartCostCents : cartCostCents;
 
   let html = `<div class="card">`;
   html += `<div class="card-title">Current Cart</div>`;
@@ -599,16 +739,7 @@ function renderOptimizerCard(): string {
   html += `<div class="card-body">`;
 
   if (state.optimizerStage === "idle") {
-    // Mode selector
-    html += `
-      <div class="filter-row">
-        <span class="filter-label">Mode</span>
-        <div class="mode-toggle">
-          <button class="mode-btn ${state.optimizeMode === "cheapest" ? "active" : ""}" id="tcg-opt-mode-cheapest">Cheapest</button>
-          <button class="mode-btn ${state.optimizeMode === "fewest-packages" ? "active" : ""}" id="tcg-opt-mode-fewest">Fewest Packages</button>
-        </div>
-      </div>
-    `;
+    html += `<div style="color:#9ca3af;font-size:12px;margin-bottom:10px;display:flex;align-items:center;gap:8px"><svg style="flex-shrink:0" width="14" height="14" viewBox="0 0 512 512" fill="#9ca3af"><path d="M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM216 336h24V272H216c-13.3 0-24-10.7-24-24s10.7-24 24-24h48c13.3 0 24 10.7 24 24v88h8c13.3 0 24 10.7 24 24s-10.7 24-24 24H216c-13.3 0-24-10.7-24-24s10.7-24 24-24zm40-208a32 32 0 1 1 0 64 32 32 0 1 1 0-64z"/></svg><span>Card condition, printing, and rarity are preserved.</span></div>`;
     // Filter controls
     html += `
       <div class="filter-row">
@@ -684,7 +815,7 @@ function renderOptimizerCard(): string {
     html += `</div>`; // close card-body before trigger
     html += `
       <button class="expandable-trigger" id="tcg-opt-expand-results">
-        <span>View optimized allocation</span>
+        <span>View Updated Cart</span>
         <span class="expandable-chevron ${state.resultsExpanded ? "open" : ""}">&#9654;</span>
       </button>
       <div class="expandable-content ${state.resultsExpanded ? "open" : ""}">
@@ -746,8 +877,8 @@ function renderOptimizerCard(): string {
     html += `</div></div>`; // padding wrapper + expandable-content
 
     // Update Cart + Optimize Again buttons (back inside card, outside expandable)
-    html += `<div style="padding:0 14px 14px">`;
-    html += `<button class="copy-btn" id="tcg-opt-update-cart" style="margin-bottom:8px">Update Cart</button>`;
+    html += `<div style="padding:12px 14px 14px">`;
+    html += `<button class="copy-btn" id="tcg-opt-update-cart" style="margin-bottom:8px;background:#2563eb">Update Cart</button>`;
     html += `<button class="optimize-btn" id="tcg-opt-again" style="background:#6b7280">Optimize Again</button>`;
     html += `</div>`;
 
@@ -765,7 +896,12 @@ function bindEvents() {
 
   overlayContainer.querySelector("#tcg-opt-close")?.addEventListener("click", () => {
     state.visible = false;
+    chrome.storage.local.set({ overlayDismissed: true });
     render();
+  });
+
+  overlayContainer.querySelector("#tcg-opt-reload")?.addEventListener("click", () => {
+    window.location.reload();
   });
 
   overlayContainer.querySelector("#tcg-opt-run")?.addEventListener("click", () => {
@@ -790,15 +926,6 @@ function bindEvents() {
   });
 
 
-  overlayContainer.querySelector("#tcg-opt-mode-cheapest")?.addEventListener("click", () => {
-    state.optimizeMode = "cheapest";
-    render();
-  });
-
-  overlayContainer.querySelector("#tcg-opt-mode-fewest")?.addEventListener("click", () => {
-    state.optimizeMode = "fewest-packages";
-    render();
-  });
 
   overlayContainer.querySelector("#tcg-opt-verified")?.addEventListener("change", (e) => {
     state.filterVerified = (e.target as HTMLInputElement).checked;
@@ -809,14 +936,73 @@ function bindEvents() {
   });
 
   overlayContainer.querySelector("#tcg-opt-export-debug")?.addEventListener("click", () => {
-    const ids = state.items.map((i) => i.productId);
-    const text = JSON.stringify(ids);
+    const skus = state.items.map((i) => i.sku);
+    const text = skus.join(", ");
     navigator.clipboard.writeText(text);
     const btn = overlayContainer?.querySelector("#tcg-opt-export-debug") as HTMLButtonElement | null;
     if (btn) {
       btn.textContent = "Copied!";
-      setTimeout(() => { btn.textContent = "Export Product IDs"; }, 2000);
+      setTimeout(() => { btn.textContent = "Export SKUs"; }, 2000);
     }
+  });
+
+  overlayContainer.querySelector("#tcg-opt-export-cart")?.addEventListener("click", () => {
+    const lines = state.items.map((i) => `${i.sku}, ${i.currentSellerKey}, 0`);
+    const text = lines.join("\n");
+    navigator.clipboard.writeText(text);
+    const btn = overlayContainer?.querySelector("#tcg-opt-export-cart") as HTMLButtonElement | null;
+    if (btn) {
+      btn.textContent = "Copied!";
+      setTimeout(() => { btn.textContent = "Export Cart"; }, 2000);
+    }
+  });
+
+  overlayContainer.querySelector("#tcg-opt-export-optimized")?.addEventListener("click", () => {
+    if (!state.result) return;
+    const itemByIndex = new Map(state.items.map((i) => [i.cartIndex, i]));
+    const lines = state.result.assignments.map((a) => {
+      const item = itemByIndex.get(a.cartIndex);
+      const sku = item?.sku ?? 0;
+      const sellerKey = a.listing.listingId === "current"
+        ? item?.currentSellerKey ?? a.listing.sellerKey
+        : a.listing.sellerKey;
+      const channelId = a.listing.listingId === "current" ? 0 : a.listing.channelId;
+      return `${sku}, ${sellerKey}, ${channelId}`;
+    }).filter((l) => !l.startsWith("0,"));
+    const text = lines.join("\n");
+    navigator.clipboard.writeText(text);
+    const btn = overlayContainer?.querySelector("#tcg-opt-export-optimized") as HTMLButtonElement | null;
+    if (btn) {
+      btn.textContent = "Copied!";
+      setTimeout(() => { btn.textContent = "Export Optimized Cart"; }, 2000);
+    }
+  });
+
+
+  overlayContainer.querySelector("#tcg-opt-import-toggle")?.addEventListener("click", () => {
+    state.importExpanded = !state.importExpanded;
+    render();
+  });
+
+  overlayContainer.querySelector("#tcg-opt-import-load")?.addEventListener("click", () => {
+    const textarea = overlayContainer?.querySelector("#tcg-opt-import-input") as HTMLTextAreaElement | null;
+    if (!textarea || !textarea.value.trim()) return;
+
+    const ids = textarea.value
+      .split(/[,\s]+/)
+      .map((s) => s.trim())
+      .filter((s) => /^\d+$/.test(s))
+      .map(Number)
+      .filter((id) => id > 0);
+
+    if (ids.length === 0) {
+      state.error = "No valid SKUs found. Enter comma-separated numbers.";
+      render();
+      return;
+    }
+
+    const uniqueIds = [...new Set(ids)];
+    importSkus(uniqueIds);
   });
 }
 
@@ -904,13 +1090,9 @@ async function runOptimize() {
 async function updateCart() {
   if (!state.result) return;
   console.log("[TCG Optimizer] Updating cart with optimized result");
-
-  // Disable button while updating
-  const btn = overlayContainer?.querySelector("#tcg-opt-update-cart") as HTMLButtonElement | null;
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "Updating...";
-  }
+  state.optimizerStage = "optimizing";
+  state.progress = { stage: "Updating cart...", progress: 0 };
+  render();
 
   try {
     const response: ExtensionMessage = await new Promise((resolve) => {
@@ -921,30 +1103,70 @@ async function updateCart() {
     });
 
     if (response.type === "UPDATE_CART_RESULT" && response.success) {
-      if (btn) {
-        btn.textContent = "Cart Updated!";
-        btn.classList.add("copied");
-      }
+      state.progress = { stage: "Cart Updated!", progress: 1 };
+      render();
       console.log("[TCG Optimizer] Cart updated successfully");
-      // Reload the page after a short delay so TCGPlayer reflects the changes
       setTimeout(() => window.location.reload(), 1500);
     } else if (response.type === "UPDATE_CART_RESULT" && !response.success) {
       state.error = response.error ?? "Failed to update cart";
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = "Update Cart";
-      }
+      state.optimizerStage = "done";
       render();
     }
   } catch (err) {
     state.error = "Failed to update cart unexpectedly.";
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = "Update Cart";
-    }
+    state.optimizerStage = "done";
     console.error("[TCG Optimizer] Update cart exception:", err);
     render();
   }
+}
+
+async function importSkus(skus: number[]) {
+  console.log(`[TCG Optimizer] Importing ${skus.length} SKUs`);
+  state.importExpanded = false;
+  state.cartLoaded = false;
+  state.importing = true;
+  state.optimizerStage = "loading";
+  state.progress = { stage: "Starting import...", progress: 0 };
+  state.error = null;
+  state.result = null;
+  render();
+
+  try {
+    const response: ExtensionMessage = await new Promise((resolve) => {
+      chrome.runtime.sendMessage(
+        { type: "IMPORT_SKUS", skus } satisfies ExtensionMessage,
+        resolve
+      );
+    });
+
+    if (response?.type === "CART_DATA") {
+      state.items = response.items;
+      state.summary = response.summary;
+      state.cartLoaded = true;
+      state.importing = false;
+      state.optimizerStage = "idle";
+      console.log(`[TCG Optimizer] Import complete: ${response.items.length} items in cart`);
+      setTimeout(() => window.location.reload(), 1500);
+    } else if (response?.type === "OPTIMIZATION_ERROR") {
+      state.error = response.error;
+      state.cartLoaded = true;
+      state.importing = false;
+      state.optimizerStage = "idle";
+    } else {
+      state.error = "Import failed unexpectedly.";
+      state.cartLoaded = true;
+      state.importing = false;
+      state.optimizerStage = "idle";
+    }
+  } catch (err) {
+    state.error = "Failed to import SKUs.";
+    state.cartLoaded = true;
+    state.importing = false;
+    state.optimizerStage = "idle";
+    console.error("[TCG Optimizer] Import SKUs exception:", err);
+  }
+
+  render();
 }
 
 // Listen for progress updates
@@ -959,9 +1181,14 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage) => {
     render();
   }
   if (message.type === "UPDATE_CART_PROGRESS") {
-    const btn = overlayContainer?.querySelector("#tcg-opt-update-cart") as HTMLButtonElement | null;
-    if (btn) btn.textContent = message.stage;
-    console.log(`[TCG Optimizer] ${message.stage}`);
+    state.progress = { stage: message.stage, progress: message.progress };
+    console.log(`[TCG Optimizer] ${message.stage} (${Math.round(message.progress * 100)}%)`);
+    render();
+  }
+  if (message.type === "IMPORT_PRODUCTS_PROGRESS") {
+    state.progress = { stage: message.stage, progress: message.progress };
+    console.log(`[TCG Optimizer] ${message.stage} (${Math.round(message.progress * 100)}%)`);
+    render();
   }
 });
 
@@ -975,9 +1202,15 @@ chrome.runtime.onMessage.addListener(
         const { container } = createOverlay();
         overlayContainer = container;
         state.visible = true;
+        chrome.storage.local.remove("overlayDismissed");
         readCart();
       } else {
         state.visible = !state.visible;
+        if (state.visible) {
+          chrome.storage.local.remove("overlayDismissed");
+        } else {
+          chrome.storage.local.set({ overlayDismissed: true });
+        }
         render();
       }
       console.log("[TCG Optimizer] Overlay now visible:", state.visible);
@@ -987,13 +1220,18 @@ chrome.runtime.onMessage.addListener(
   }
 );
 
-// Auto-initialize on cart pages
+// Auto-initialize on cart pages (respecting dismiss state)
 const isCartPage = window.location.pathname.startsWith("/cart");
 console.log(`[TCG Optimizer] Content script loaded on ${window.location.pathname} (isCartPage: ${isCartPage})`);
 if (isCartPage) {
-  console.log("[TCG Optimizer] Auto-creating overlay on cart page");
-  const { container } = createOverlay();
-  overlayContainer = container;
-  console.log("[TCG Optimizer] Overlay element:", document.getElementById("tcg-optimizer-overlay"));
-  readCart();
+  chrome.storage.local.get("overlayDismissed", (result) => {
+    if (result.overlayDismissed) {
+      console.log("[TCG Optimizer] Overlay was dismissed, not showing on load");
+      return;
+    }
+    console.log("[TCG Optimizer] Auto-creating overlay on cart page");
+    const { container } = createOverlay();
+    overlayContainer = container;
+    readCart();
+  });
 }

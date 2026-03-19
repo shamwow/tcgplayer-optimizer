@@ -48,6 +48,7 @@ export interface SellerListing {
   condition: string;
   /** Printing (Normal/Foil) */
   printing: string;
+  channelId: number;
 }
 
 /** Per-card assignment in the optimal solution */
@@ -120,4 +121,7 @@ export type ExtensionMessage =
   | { type: "OPTIMIZATION_ERROR"; error: string }
   | { type: "UPDATE_CART"; result: OptimizationResult; items: CartItem[] }
   | { type: "UPDATE_CART_RESULT"; success: boolean; error?: string }
-  | { type: "UPDATE_CART_PROGRESS"; stage: string };
+  | { type: "UPDATE_CART_PROGRESS"; stage: string; progress: number }
+  | { type: "IMPORT_PRODUCTS"; productIds: number[] }
+  | { type: "IMPORT_SKUS"; skus: number[] }
+  | { type: "IMPORT_PRODUCTS_PROGRESS"; stage: string; progress: number }

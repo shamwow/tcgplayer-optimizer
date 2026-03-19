@@ -9,8 +9,8 @@ import type {
 } from "@/types";
 import type { ModelInput, ListingForModel, SolverResult } from "@/optimizer/types";
 import type { CartSummary } from "@/types";
-import { fetchListings } from "@/api/tcgplayer";
-import { getCartKey, fetchCartItems, getCartSummary, validateCart, removeItemFromCart, addItemToCart } from "@/api/cart";
+import { fetchListings, fetchCheapestListings } from "@/api/tcgplayer";
+import { getCartKey, fetchCartItems, getCartSummary, validateCart, removeItemFromCart, addItemToCart, createAnonymousCart, getProductsForSkus } from "@/api/cart";
 
 /**
  * Background service worker: orchestrates the optimization pipeline.
@@ -28,6 +28,14 @@ chrome.runtime.onMessage.addListener(
     }
     if (message.type === "UPDATE_CART") {
       handleUpdateCart(message.result, message.items, sendResponse);
+      return true; // async
+    }
+    if (message.type === "IMPORT_PRODUCTS") {
+      handleImportProducts(message.productIds, sendResponse);
+      return true; // async
+    }
+    if (message.type === "IMPORT_SKUS") {
+      handleImportSkus(message.skus, sendResponse);
       return true; // async
     }
   }
@@ -226,6 +234,7 @@ async function handleOptimize(
             verified: false,
             condition: item.condition,
             printing: item.printing,
+            channelId: 0,
           },
           originalPriceCents: item.currentPriceCents,
           savingsCents: 0,
@@ -262,7 +271,7 @@ async function handleUpdateCart(
     }
 
     // Step 1: Get cart key
-    sendUpdateProgress("Getting cart...");
+    sendUpdateProgress("Getting cart...", 0);
     let cartKey = await getCartKeyFromCookie();
     if (!cartKey) cartKey = await getCartKey();
     if (!cartKey) {
@@ -271,21 +280,26 @@ async function handleUpdateCart(
     }
 
     // Step 2: Validate cart to get cartItemIds for removal
-    sendUpdateProgress("Reading current cart...");
+    sendUpdateProgress("Reading current cart...", 0.05);
     const currentItems = await validateCart(cartKey);
     console.log(`[TCG Optimizer SW] Cart has ${currentItems.length} items to remove`);
 
     // Step 3: Remove all items
-    sendUpdateProgress(`Removing ${currentItems.length} items...`);
-    for (const item of currentItems) {
-      await removeItemFromCart(cartKey, item.cartItemId);
+    const totalSteps = currentItems.length + result.assignments.length;
+    for (let i = 0; i < currentItems.length; i++) {
+      sendUpdateProgress(`Removing items... (${i + 1}/${currentItems.length})`, 0.1 + (i / totalSteps) * 0.8);
+      await removeItemFromCart(cartKey, currentItems[i].cartItemId);
     }
     console.log(`[TCG Optimizer SW] Removed all ${currentItems.length} items`);
 
+    // Wait for TCGPlayer to release seller inventory after removal
+    sendUpdateProgress("Waiting for inventory to update...", 0.5);
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+
     // Step 4: Add optimized items
     const assignments = result.assignments;
-    sendUpdateProgress(`Adding ${assignments.length} optimized items...`);
     for (let i = 0; i < assignments.length; i++) {
+      sendUpdateProgress(`Adding items... (${i + 1}/${assignments.length})`, 0.1 + ((currentItems.length + i) / totalSteps) * 0.8);
       const a = assignments[i];
       const sku = skuByCartIndex.get(a.cartIndex);
       if (!sku) {
@@ -297,10 +311,14 @@ async function handleUpdateCart(
       const sellerKey = a.listing.listingId === "current"
         ? sellerKeyByCartIndex.get(a.cartIndex) ?? a.listing.sellerKey
         : a.listing.sellerKey;
-      const priceDollars = a.listing.priceCents / 100;
 
-      await addItemToCart(cartKey, sku, sellerKey, priceDollars, 1);
-      sendUpdateProgress(`Adding items... (${i + 1}/${assignments.length})`);
+      const channelId = a.listing.listingId === "current" ? 0 : a.listing.channelId;
+      try {
+        await addItemToCart(cartKey, sku, sellerKey, 1, "US", channelId);
+      } catch (err) {
+        console.error(`[TCG Optimizer SW] Failed to add item ${i + 1}/${assignments.length}: "${a.name}" (sku=${sku}, seller=${sellerKey}, ch=${channelId})`, err);
+        throw err;
+      }
     }
 
     console.log(`[TCG Optimizer SW] Cart updated with ${assignments.length} items`);
@@ -315,8 +333,223 @@ async function handleUpdateCart(
   }
 }
 
-async function sendUpdateProgress(stage: string) {
-  const msg: ExtensionMessage = { type: "UPDATE_CART_PROGRESS", stage };
+async function handleImportProducts(
+  productIds: number[],
+  sendResponse: (msg: ExtensionMessage) => void
+) {
+  try {
+    console.log(`[TCG Optimizer SW] Importing ${productIds.length} products`);
+
+    // Step 1: Get or create cart key
+    sendImportProgress("Getting cart...", 0);
+    let cartKey = await getCartKeyFromCookie();
+    if (!cartKey) cartKey = await getCartKey();
+    if (!cartKey) {
+      cartKey = await createAnonymousCart();
+    }
+    if (!cartKey) {
+      sendResponse({ type: "OPTIMIZATION_ERROR", error: "Could not find or create cart" });
+      return;
+    }
+
+    // Step 2: For each product, fetch cheapest listings and try adding to cart
+    let added = 0;
+    const failed: { productId: number; reason: string }[] = [];
+    for (let i = 0; i < productIds.length; i++) {
+      const productId = productIds[i];
+      sendImportProgress(`Adding product ${i + 1}/${productIds.length}...`, (i / productIds.length) * 0.8);
+
+      const listings = await fetchCheapestListings(productId, "Near Mint", ["Normal", "Foil"]);
+      if (listings.length === 0) {
+        console.warn(`[TCG Optimizer SW] [${i + 1}/${productIds.length}] Product ${productId}: no verified listings found`);
+        failed.push({ productId, reason: "No verified listing found" });
+        continue;
+      }
+
+      console.log(`[TCG Optimizer SW] [${i + 1}/${productIds.length}] Product ${productId}: found ${listings.length} verified listings (cheapest: $${listings[0].price.toFixed(2)} ${listings[0].printing})`);
+
+      let addedThis = false;
+      let lastErr = "";
+      for (let s = 0; s < listings.length; s++) {
+        const listing = listings[s];
+        console.log(`[TCG Optimizer SW] [${i + 1}/${productIds.length}] Product ${productId}: trying seller ${s + 1}/${listings.length} — SKU=${listing.sku}, seller=${listing.sellerKey}, price=$${listing.price.toFixed(2)}, ${listing.printing}`);
+        try {
+          await addItemToCart(cartKey, listing.sku, listing.sellerKey, 1, "US", listing.channelId);
+          added++;
+          addedThis = true;
+          console.log(`[TCG Optimizer SW] [${i + 1}/${productIds.length}] Product ${productId}: added to cart OK (seller ${s + 1}, ${listing.printing})`);
+          break;
+        } catch (err) {
+          lastErr = err instanceof Error ? err.message : String(err);
+          console.warn(`[TCG Optimizer SW] [${i + 1}/${productIds.length}] Product ${productId} (${listing.printing}): seller ${listing.sellerKey} failed — ${lastErr}`);
+        }
+      }
+
+      if (!addedThis) {
+        const tried = listings.map(l => l.sellerKey).join(", ");
+        console.error(`[TCG Optimizer SW] [${i + 1}/${productIds.length}] Product ${productId}: FAILED all ${listings.length} sellers (${tried}) — ${lastErr}`);
+        failed.push({ productId, reason: `Product ${productId}: all ${listings.length} sellers unavailable — ${lastErr}` });
+      }
+    }
+
+    console.log(`[TCG Optimizer SW] Import batch done: ${added} added, ${failed.length} failed out of ${productIds.length}`);
+    if (failed.length > 0) {
+      console.warn(`[TCG Optimizer SW] Failed products:`, failed);
+    }
+
+    if (added === 0) {
+      sendResponse({
+        type: "OPTIMIZATION_ERROR",
+        error: `Could not add any of the ${productIds.length} products to cart. Failures: ${failed.map(f => `${f.productId} (${f.reason})`).join(", ")}`,
+      });
+      return;
+    }
+
+    // Step 3: Read the cart back
+    sendImportProgress("Reading cart...", 0.9);
+    const [items, rawSummary] = await Promise.all([
+      fetchCartItems(cartKey),
+      getCartSummary(cartKey).catch(() => null),
+    ]);
+
+    let summary: CartSummary | null = null;
+    if (rawSummary) {
+      summary = {
+        itemCount: rawSummary.itemCount,
+        sellerCount: rawSummary.fulfillerCount,
+        cartCostCents: Math.round(rawSummary.requestedTotalCost * 100),
+        shippingCostCents: Math.round(rawSummary.estimatedShippingCost * 100),
+      };
+    }
+
+    const failMsg = failed.length > 0
+      ? `(${failed.length} product${failed.length > 1 ? "s" : ""} could not be added: ${failed.map(f => f.productId).join(", ")})`
+      : "";
+    console.log(`[TCG Optimizer SW] Import complete: ${added} added, ${failed.length} failed. Cart has ${items.length} items. ${failMsg}`);
+
+    sendResponse({ type: "CART_DATA", items, summary });
+  } catch (err) {
+    console.error("[TCG Optimizer SW] handleImportProducts error:", err);
+    sendResponse({
+      type: "OPTIMIZATION_ERROR",
+      error: err instanceof Error ? err.message : "Failed to import products",
+    });
+  }
+}
+
+async function handleImportSkus(
+  skus: number[],
+  sendResponse: (msg: ExtensionMessage) => void
+) {
+  try {
+    console.log(`[TCG Optimizer SW] Importing ${skus.length} SKUs`);
+
+    // Step 1: Get or create cart key
+    sendImportProgress("Getting cart...", 0);
+    let cartKey = await getCartKeyFromCookie();
+    if (!cartKey) cartKey = await getCartKey();
+    if (!cartKey) {
+      cartKey = await createAnonymousCart();
+    }
+    if (!cartKey) {
+      sendResponse({ type: "OPTIMIZATION_ERROR", error: "Could not find or create cart" });
+      return;
+    }
+
+    // Step 2: Look up product details for all SKUs
+    sendImportProgress("Looking up products...", 0.05);
+    const products = await getProductsForSkus(skus);
+    const productBySku = new Map<number, { productId: number; condition: string; printing: string }>();
+    for (const p of products) {
+      // The SKU API returns condition with printing appended (e.g. "Near Mint Foil").
+      // Strip the printing suffix so the listings API gets just "Near Mint".
+      const condition = p.condition.replace(new RegExp(`\\s+${p.printing}$`, "i"), "");
+      productBySku.set(p.sku, { productId: p.productId, condition, printing: p.printing });
+    }
+
+    // Step 3: For each SKU, fetch cheapest listings matching its condition/printing and add to cart
+    let added = 0;
+    const failed: { sku: number; reason: string }[] = [];
+    for (let i = 0; i < skus.length; i++) {
+      const sku = skus[i];
+      sendImportProgress(`Adding item ${i + 1}/${skus.length}...`, (i / skus.length) * 0.8 + 0.1);
+
+      const product = productBySku.get(sku);
+      if (!product) {
+        console.warn(`[TCG Optimizer SW] [${i + 1}/${skus.length}] SKU ${sku}: no product found`);
+        failed.push({ sku, reason: "Product not found for SKU" });
+        continue;
+      }
+
+      const listings = await fetchCheapestListings(product.productId, product.condition, [product.printing]);
+      if (listings.length === 0) {
+        console.warn(`[TCG Optimizer SW] [${i + 1}/${skus.length}] SKU ${sku}: no verified listings found`);
+        failed.push({ sku, reason: "No verified listing found" });
+        continue;
+      }
+
+      console.log(`[TCG Optimizer SW] [${i + 1}/${skus.length}] SKU ${sku} (product ${product.productId}): found ${listings.length} listings (cheapest: $${listings[0].price.toFixed(2)} ${listings[0].printing})`);
+
+      let addedThis = false;
+      let lastErr = "";
+      for (let s = 0; s < listings.length; s++) {
+        const listing = listings[s];
+        try {
+          await addItemToCart(cartKey, listing.sku, listing.sellerKey, 1, "US", listing.channelId);
+          added++;
+          addedThis = true;
+          console.log(`[TCG Optimizer SW] [${i + 1}/${skus.length}] SKU ${sku}: added to cart OK (seller ${s + 1}, ${listing.printing})`);
+          break;
+        } catch (err) {
+          lastErr = err instanceof Error ? err.message : String(err);
+          console.warn(`[TCG Optimizer SW] [${i + 1}/${skus.length}] SKU ${sku}: seller ${listing.sellerKey} failed — ${lastErr}`);
+        }
+      }
+
+      if (!addedThis) {
+        failed.push({ sku, reason: `All ${listings.length} sellers unavailable — ${lastErr}` });
+      }
+    }
+
+    console.log(`[TCG Optimizer SW] SKU import done: ${added} added, ${failed.length} failed out of ${skus.length}`);
+
+    if (added === 0) {
+      sendResponse({
+        type: "OPTIMIZATION_ERROR",
+        error: `Could not add any of the ${skus.length} SKUs to cart. Failures: ${failed.map(f => `${f.sku} (${f.reason})`).join(", ")}`,
+      });
+      return;
+    }
+
+    // Step 4: Read the cart back
+    sendImportProgress("Reading cart...", 0.9);
+    const [items, rawSummary] = await Promise.all([
+      fetchCartItems(cartKey),
+      getCartSummary(cartKey).catch(() => null),
+    ]);
+
+    let summary: CartSummary | null = null;
+    if (rawSummary) {
+      summary = {
+        itemCount: rawSummary.itemCount,
+        sellerCount: rawSummary.fulfillerCount,
+        cartCostCents: Math.round(rawSummary.requestedTotalCost * 100),
+        shippingCostCents: Math.round(rawSummary.estimatedShippingCost * 100),
+      };
+    }
+
+    sendResponse({ type: "CART_DATA", items, summary });
+  } catch (err) {
+    console.error("[TCG Optimizer SW] handleImportSkus error:", err);
+    sendResponse({
+      type: "OPTIMIZATION_ERROR",
+      error: err instanceof Error ? err.message : "Failed to import SKUs",
+    });
+  }
+}
+
+async function sendImportProgress(stage: string, progress: number) {
+  const msg: ExtensionMessage = { type: "IMPORT_PRODUCTS_PROGRESS", stage, progress };
   try {
     const tabs = await chrome.tabs.query({ url: "https://www.tcgplayer.com/*" });
     for (const tab of tabs) {
@@ -327,6 +560,20 @@ async function sendUpdateProgress(stage: string) {
   } catch {}
   chrome.runtime.sendMessage(msg).catch(() => {});
 }
+
+async function sendUpdateProgress(stage: string, progress: number) {
+  const msg: ExtensionMessage = { type: "UPDATE_CART_PROGRESS", stage, progress };
+  try {
+    const tabs = await chrome.tabs.query({ url: "https://www.tcgplayer.com/*" });
+    for (const tab of tabs) {
+      if (tab.id) {
+        chrome.tabs.sendMessage(tab.id, msg).catch(() => {});
+      }
+    }
+  } catch {}
+  chrome.runtime.sendMessage(msg).catch(() => {});
+}
+
 
 /** Concurrency limit for parallel listing fetches */
 const FETCH_CONCURRENCY = 5;

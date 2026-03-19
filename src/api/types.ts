@@ -41,6 +41,7 @@ export interface ApiListingResult {
   sellerSales: string;
   language: string;
   listingType: string;
+  productConditionId: number;
 }
 
 /** Inner result wrapper from the API */

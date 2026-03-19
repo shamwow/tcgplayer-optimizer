@@ -1,3 +1,10 @@
+// This script is used to capture a snapshot of live TCGPlayer listings for a specific set of product IDs, 
+// simulating a "cart" with 72 cards.
+// 
+// The data is then to be used in tests (so that each run isn't stuck fetching data from the live API)
+//
+// Meant to speed up iteration on the optimizer.
+
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 

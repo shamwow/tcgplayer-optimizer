@@ -112,7 +112,6 @@ describe("TCGPlayer Cart API - Full Lifecycle", () => {
         cartKey,
         listing.sku,
         listing.sellerKey,
-        listing.price,
         1,
         COUNTRY_CODE
       );
