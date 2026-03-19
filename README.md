@@ -14,6 +14,8 @@ There are two components:
 
 The extension adds an overlay to the page which has an outline of the steps which you'll need to go through:
 
+![UI](public/ui.png)
+
 1. **Export** — The extension reads your cart and fetches all available seller listings for each item, then downloads a JSON file.
 2. **Solve** — You run the solver locally via the CLI to compute the cheapest combination of sellers.
 3. **Import & Apply** — You paste or drag-drop the solver output back into the extension, review the changes, and apply them to your cart.
