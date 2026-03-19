@@ -4,8 +4,13 @@ import type {
   ExtensionMessage,
 } from "@/types";
 import { matchCliOutputToItems } from "@/cli/exchange";
-import type { CliOptimizerInput, CliOptimizerOutput, CliSeller, CliListing } from "@/cli/types";
-import type { SellerShippingThreshold } from "@/optimizer/types";
+import type {
+  CliOptimizerInput,
+  CliOptimizerOutput,
+  CliSeller,
+  CliListing,
+  SellerShippingThreshold,
+} from "@/cli/types";
 import type { CartSummary } from "@/types";
 import { fetchListings, fetchCheapestListings } from "@/api/tcgplayer";
 import { getCartKey, fetchCartItems, getCartSummary, validateCart, removeItemFromCart, addItemToCart, createAnonymousCart, getProductsForSkus, getSellerShippingInfo } from "@/api/cart";

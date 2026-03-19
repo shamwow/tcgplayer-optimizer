@@ -2,6 +2,12 @@ export const CLI_INPUT_FORMAT = "tcgplayer-optimizer-cli-input";
 export const CLI_OUTPUT_FORMAT = "tcgplayer-optimizer-cli-output";
 export const CLI_FORMAT_VERSION = 1;
 
+export interface SellerShippingThreshold {
+  shippingUnderCents: number;
+  shippingOverCents: number;
+  thresholdCents: number;
+}
+
 export interface CliDesiredItem {
   cartIndex: number;
   sku: number;
