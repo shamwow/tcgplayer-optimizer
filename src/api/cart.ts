@@ -149,6 +149,27 @@ export async function createAnonymousCart(): Promise<string> {
 }
 
 /**
+ * Remove an item from the cart by its cartItemId.
+ */
+export async function removeItemFromCart(
+  cartKey: string,
+  cartItemId: number
+): Promise<void> {
+  const response = await fetch(
+    `${MPGATEWAY_BASE}/cart/${cartKey}/item/${cartItemId}`,
+    {
+      method: "DELETE",
+      headers: HEADERS,
+      credentials: "include",
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Remove from cart error: ${response.status}`);
+  }
+}
+
+/**
  * Add an item to the cart.
  */
 export async function addItemToCart(
@@ -328,6 +349,7 @@ export async function fetchCartItems(cartKey: string): Promise<CartItem[]> {
     items.push({
       cartIndex: i,
       productId: product.productId,
+      sku: cartItem.sku,
       name: product.productName,
       condition: product.condition,
       printing: product.printing,
@@ -336,6 +358,7 @@ export async function fetchCartItems(cartKey: string): Promise<CartItem[]> {
       quantity: cartItem.quantity,
       currentPriceCents: Math.round(cartItem.currentPrice * 100),
       currentSeller: sellerNameById.get(cartItem.sellerId) ?? "",
+      currentSellerKey: cartItem.sellerKey,
     });
   }
 

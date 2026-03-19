@@ -47,6 +47,7 @@ export function readCart(doc: Document = document): CartItem[] {
       items.push({
         cartIndex: index,
         productId,
+        sku: 0,
         name,
         condition,
         printing,
@@ -55,6 +56,7 @@ export function readCart(doc: Document = document): CartItem[] {
         quantity,
         currentPriceCents: priceCents,
         currentSeller: seller,
+        currentSellerKey: "",
       });
     }
   });

@@ -4,6 +4,8 @@ export interface CartItem {
   cartIndex: number;
   /** TCGPlayer product ID (extracted from product URL) */
   productId: number;
+  /** TCGPlayer SKU (product variant: product + condition + printing) */
+  sku: number;
   /** Card name as displayed in the cart */
   name: string;
   /** e.g. "Near Mint", "Lightly Played" */
@@ -20,6 +22,8 @@ export interface CartItem {
   currentPriceCents: number;
   /** Current seller in the user's cart */
   currentSeller: string;
+  /** Current seller key in the user's cart */
+  currentSellerKey: string;
 }
 
 /** A listing from a seller for a specific product */
@@ -113,4 +117,7 @@ export type ExtensionMessage =
   | { type: "OPTIMIZE"; items: CartItem[]; verifiedOnly: boolean; mode: OptimizeMode }
   | { type: "OPTIMIZATION_PROGRESS"; stage: string; progress: number; detail?: string }
   | { type: "OPTIMIZATION_RESULT"; result: OptimizationResult }
-  | { type: "OPTIMIZATION_ERROR"; error: string };
+  | { type: "OPTIMIZATION_ERROR"; error: string }
+  | { type: "UPDATE_CART"; result: OptimizationResult; items: CartItem[] }
+  | { type: "UPDATE_CART_RESULT"; success: boolean; error?: string }
+  | { type: "UPDATE_CART_PROGRESS"; stage: string };

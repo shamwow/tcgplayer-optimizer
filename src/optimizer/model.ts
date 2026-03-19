@@ -31,23 +31,27 @@ export function buildLpModel(input: ModelInput): string {
     }
   }
 
-  // For fewest-packages mode, compute big-M: sum of max price per card + max shipping.
-  // This ensures fewer sellers always dominates over cost savings.
-  let bigM = 0;
+  // For fewest-packages mode, scale costs into the fractional part of the objective
+  // so that seller count (integer part) always dominates.
+  //   min Σ 1·y_s + (1/scale)·(Σ price·x + Σ shipping·y)
+  // where scale > max possible total cost, ensuring all cost terms sum to < 1.
+  // This avoids large big-M coefficients that crash the WASM solver.
+  let costScale = 1;
   if (mode === "fewest-packages") {
+    let maxTotalCost = 0;
     for (const listings of listingsPerCard) {
       let maxPrice = 0;
       for (const listing of listings) {
         if (listing.priceCents > maxPrice) maxPrice = listing.priceCents;
       }
-      bigM += maxPrice;
+      maxTotalCost += maxPrice;
     }
     let maxShipping = 0;
     for (const shipping of sellerShipping.values()) {
       if (shipping > maxShipping) maxShipping = shipping;
     }
-    bigM += maxShipping * sellerShipping.size;
-    bigM += 1; // ensure strict dominance
+    maxTotalCost += maxShipping * cards.length;
+    costScale = maxTotalCost + 1;
   }
 
   const lines: string[] = [];
@@ -59,13 +63,16 @@ export function buildLpModel(input: ModelInput): string {
   for (let c = 0; c < cards.length; c++) {
     for (let l = 0; l < listingsPerCard[c].length; l++) {
       const price = listingsPerCard[c][l].priceCents;
-      objTerms.push(`${price} x_${c}_${l}`);
+      const coeff = mode === "fewest-packages" ? price / costScale : price;
+      objTerms.push(`${coeff} x_${c}_${l}`);
     }
   }
 
   for (const [sellerKey, shipping] of sellerShipping) {
     const safeKey = sanitizeVarName(sellerKey);
-    const sellerCoeff = mode === "fewest-packages" ? bigM + shipping : shipping;
+    const sellerCoeff = mode === "fewest-packages"
+      ? 1 + shipping / costScale
+      : shipping;
     objTerms.push(`${sellerCoeff} y_${safeKey}`);
   }
 

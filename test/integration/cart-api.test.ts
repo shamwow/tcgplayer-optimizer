@@ -3,6 +3,7 @@ import {
   getCartKey,
   createAnonymousCart,
   addItemToCart,
+  removeItemFromCart,
   getCartSummary,
   validateCart,
   getProductsForSkus,
@@ -152,6 +153,14 @@ describe("TCGPlayer Cart API - Full Lifecycle", () => {
       expect(cartItems[0].printing).toBe("Normal");
       expect(cartItems[0].quantity).toBe(1);
       expect(cartItems[0].currentPriceCents).toBeGreaterThan(0);
+
+      // Step 8: Remove item from cart
+      const cartItemId = validated[0].cartItemId;
+      await removeItemFromCart(cartKey, cartItemId);
+
+      // Step 9: Verify cart is empty after removal
+      const summaryAfter = await getCartSummary(cartKey);
+      expect(summaryAfter.itemCount).toBe(0);
     },
     30000
   );

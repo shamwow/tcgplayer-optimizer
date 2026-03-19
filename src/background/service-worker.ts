@@ -10,7 +10,7 @@ import type {
 import type { ModelInput, ListingForModel, SolverResult } from "@/optimizer/types";
 import type { CartSummary } from "@/types";
 import { fetchListings } from "@/api/tcgplayer";
-import { getCartKey, fetchCartItems, getCartSummary } from "@/api/cart";
+import { getCartKey, fetchCartItems, getCartSummary, validateCart, removeItemFromCart, addItemToCart } from "@/api/cart";
 
 /**
  * Background service worker: orchestrates the optimization pipeline.
@@ -24,6 +24,10 @@ chrome.runtime.onMessage.addListener(
     }
     if (message.type === "OPTIMIZE") {
       handleOptimize(message.items, message.verifiedOnly, message.mode, sendResponse);
+      return true; // async
+    }
+    if (message.type === "UPDATE_CART") {
+      handleUpdateCart(message.result, message.items, sendResponse);
       return true; // async
     }
   }
@@ -241,6 +245,87 @@ async function handleOptimize(
       error: err instanceof Error ? err.message : "Optimization failed",
     });
   }
+}
+
+async function handleUpdateCart(
+  result: OptimizationResult,
+  originalItems: CartItem[],
+  sendResponse: (msg: ExtensionMessage) => void
+) {
+  try {
+    // Build SKU lookup from original cart items
+    const skuByCartIndex = new Map<number, number>();
+    const sellerKeyByCartIndex = new Map<number, string>();
+    for (const item of originalItems) {
+      skuByCartIndex.set(item.cartIndex, item.sku);
+      sellerKeyByCartIndex.set(item.cartIndex, item.currentSellerKey);
+    }
+
+    // Step 1: Get cart key
+    sendUpdateProgress("Getting cart...");
+    let cartKey = await getCartKeyFromCookie();
+    if (!cartKey) cartKey = await getCartKey();
+    if (!cartKey) {
+      sendResponse({ type: "UPDATE_CART_RESULT", success: false, error: "Could not find cart key" });
+      return;
+    }
+
+    // Step 2: Validate cart to get cartItemIds for removal
+    sendUpdateProgress("Reading current cart...");
+    const currentItems = await validateCart(cartKey);
+    console.log(`[TCG Optimizer SW] Cart has ${currentItems.length} items to remove`);
+
+    // Step 3: Remove all items
+    sendUpdateProgress(`Removing ${currentItems.length} items...`);
+    for (const item of currentItems) {
+      await removeItemFromCart(cartKey, item.cartItemId);
+    }
+    console.log(`[TCG Optimizer SW] Removed all ${currentItems.length} items`);
+
+    // Step 4: Add optimized items
+    const assignments = result.assignments;
+    sendUpdateProgress(`Adding ${assignments.length} optimized items...`);
+    for (let i = 0; i < assignments.length; i++) {
+      const a = assignments[i];
+      const sku = skuByCartIndex.get(a.cartIndex);
+      if (!sku) {
+        console.warn(`[TCG Optimizer SW] No SKU for cartIndex ${a.cartIndex}, skipping`);
+        continue;
+      }
+
+      // For skipped/kept items use original seller key, otherwise use optimized listing's seller key
+      const sellerKey = a.listing.listingId === "current"
+        ? sellerKeyByCartIndex.get(a.cartIndex) ?? a.listing.sellerKey
+        : a.listing.sellerKey;
+      const priceDollars = a.listing.priceCents / 100;
+
+      await addItemToCart(cartKey, sku, sellerKey, priceDollars, 1);
+      sendUpdateProgress(`Adding items... (${i + 1}/${assignments.length})`);
+    }
+
+    console.log(`[TCG Optimizer SW] Cart updated with ${assignments.length} items`);
+    sendResponse({ type: "UPDATE_CART_RESULT", success: true });
+  } catch (err) {
+    console.error("[TCG Optimizer SW] handleUpdateCart error:", err);
+    sendResponse({
+      type: "UPDATE_CART_RESULT",
+      success: false,
+      error: err instanceof Error ? err.message : "Failed to update cart",
+    });
+  }
+}
+
+async function sendUpdateProgress(stage: string) {
+  const msg: ExtensionMessage = { type: "UPDATE_CART_PROGRESS", stage };
+  try {
+    const tabs = await chrome.tabs.query({ url: "https://www.tcgplayer.com/*" });
+    for (const tab of tabs) {
+      if (tab.id) {
+        chrome.tabs.sendMessage(tab.id, msg).catch(() => {});
+      }
+    }
+  } catch {}
+  chrome.runtime.sendMessage(msg).catch(() => {});
 }
 
 /** Concurrency limit for parallel listing fetches */

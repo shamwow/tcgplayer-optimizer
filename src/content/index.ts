@@ -501,6 +501,11 @@ function render() {
 
     // --- Card 2: Optimizer ---
     html += renderOptimizerCard();
+
+    // Debug: export product IDs
+    html += `<div style="margin-top:12px;text-align:center">`;
+    html += `<button id="tcg-opt-export-debug" style="background:none;border:none;color:#9ca3af;font-size:10px;cursor:pointer;text-decoration:underline">Export Product IDs</button>`;
+    html += `</div>`;
   }
 
   html += `</div>`;
@@ -740,9 +745,9 @@ function renderOptimizerCard(): string {
 
     html += `</div></div>`; // padding wrapper + expandable-content
 
-    // Copy + Optimize Again buttons (back inside card, outside expandable)
+    // Update Cart + Optimize Again buttons (back inside card, outside expandable)
     html += `<div style="padding:0 14px 14px">`;
-    html += `<button class="copy-btn" id="tcg-opt-copy" style="margin-bottom:8px">Copy Optimized List</button>`;
+    html += `<button class="copy-btn" id="tcg-opt-update-cart" style="margin-bottom:8px">Update Cart</button>`;
     html += `<button class="optimize-btn" id="tcg-opt-again" style="background:#6b7280">Optimize Again</button>`;
     html += `</div>`;
 
@@ -799,24 +804,19 @@ function bindEvents() {
     state.filterVerified = (e.target as HTMLInputElement).checked;
   });
 
-  overlayContainer.querySelector("#tcg-opt-copy")?.addEventListener("click", (e) => {
-    if (!state.result) return;
-    const lines: string[] = [];
-    for (const seller of state.result.sellers) {
-      lines.push(`// Seller: ${seller.sellerName}`);
-      for (const item of seller.items) {
-        lines.push(`1 ${item.name}`);
-      }
-      lines.push("");
+  overlayContainer.querySelector("#tcg-opt-update-cart")?.addEventListener("click", () => {
+    updateCart();
+  });
+
+  overlayContainer.querySelector("#tcg-opt-export-debug")?.addEventListener("click", () => {
+    const ids = state.items.map((i) => i.productId);
+    const text = JSON.stringify(ids);
+    navigator.clipboard.writeText(text);
+    const btn = overlayContainer?.querySelector("#tcg-opt-export-debug") as HTMLButtonElement | null;
+    if (btn) {
+      btn.textContent = "Copied!";
+      setTimeout(() => { btn.textContent = "Export Product IDs"; }, 2000);
     }
-    navigator.clipboard.writeText(lines.join("\n").trim());
-    const btn = e.target as HTMLButtonElement;
-    btn.textContent = "Copied to Clipboard!";
-    btn.classList.add("copied");
-    setTimeout(() => {
-      btn.textContent = "Copy Optimized List";
-      btn.classList.remove("copied");
-    }, 2000);
   });
 }
 
@@ -901,6 +901,52 @@ async function runOptimize() {
   render();
 }
 
+async function updateCart() {
+  if (!state.result) return;
+  console.log("[TCG Optimizer] Updating cart with optimized result");
+
+  // Disable button while updating
+  const btn = overlayContainer?.querySelector("#tcg-opt-update-cart") as HTMLButtonElement | null;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Updating...";
+  }
+
+  try {
+    const response: ExtensionMessage = await new Promise((resolve) => {
+      chrome.runtime.sendMessage(
+        { type: "UPDATE_CART", result: state.result!, items: state.items } satisfies ExtensionMessage,
+        resolve
+      );
+    });
+
+    if (response.type === "UPDATE_CART_RESULT" && response.success) {
+      if (btn) {
+        btn.textContent = "Cart Updated!";
+        btn.classList.add("copied");
+      }
+      console.log("[TCG Optimizer] Cart updated successfully");
+      // Reload the page after a short delay so TCGPlayer reflects the changes
+      setTimeout(() => window.location.reload(), 1500);
+    } else if (response.type === "UPDATE_CART_RESULT" && !response.success) {
+      state.error = response.error ?? "Failed to update cart";
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Update Cart";
+      }
+      render();
+    }
+  } catch (err) {
+    state.error = "Failed to update cart unexpectedly.";
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Update Cart";
+    }
+    console.error("[TCG Optimizer] Update cart exception:", err);
+    render();
+  }
+}
+
 // Listen for progress updates
 chrome.runtime.onMessage.addListener((message: ExtensionMessage) => {
   if (message.type === "OPTIMIZATION_PROGRESS") {
@@ -911,6 +957,11 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage) => {
       console.log(`[TCG Optimizer] ${message.stage} (${Math.round(message.progress * 100)}%)`);
     }
     render();
+  }
+  if (message.type === "UPDATE_CART_PROGRESS") {
+    const btn = overlayContainer?.querySelector("#tcg-opt-update-cart") as HTMLButtonElement | null;
+    if (btn) btn.textContent = message.stage;
+    console.log(`[TCG Optimizer] ${message.stage}`);
   }
 });
 
