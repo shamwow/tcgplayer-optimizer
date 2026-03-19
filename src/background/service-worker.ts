@@ -1,36 +1,22 @@
 import type {
   CartItem,
   SellerListing,
-  CardAssignment,
-  SellerSummary,
-  SkippedCard,
-  OptimizationResult,
   ExtensionMessage,
 } from "@/types";
 import { matchCliOutputToItems } from "@/cli/exchange";
 import type { CliOptimizerInput, CliOptimizerOutput, CliSeller, CliListing } from "@/cli/types";
-import type { ModelInput, ListingForModel, SellerShippingThreshold } from "@/optimizer/types";
-import { solve } from "@/optimizer/solver";
+import type { SellerShippingThreshold } from "@/optimizer/types";
 import type { CartSummary } from "@/types";
 import { fetchListings, fetchCheapestListings } from "@/api/tcgplayer";
 import { getCartKey, fetchCartItems, getCartSummary, validateCart, removeItemFromCart, addItemToCart, createAnonymousCart, getProductsForSkus, getSellerShippingInfo } from "@/api/cart";
 
 /**
- * Background service worker: orchestrates the optimization pipeline.
- * Cart reading (via API) → Listings → Solver → Results
+ * Background service worker for cart export/import flows.
  */
 chrome.runtime.onMessage.addListener(
   (message: ExtensionMessage, _sender, sendResponse) => {
     if (message.type === "READ_CART") {
       handleReadCart(sendResponse);
-      return true; // async
-    }
-    if (message.type === "OPTIMIZE") {
-      handleOptimize(message.items, message.verifiedOnly, message.mode, sendResponse);
-      return true; // async
-    }
-    if (message.type === "UPDATE_CART") {
-      handleUpdateCart(message.result, message.items, sendResponse);
       return true; // async
     }
     if (message.type === "EXPORT_CLI_INPUT") {
@@ -228,42 +214,6 @@ function ensureCompleteSellerShipping(
   return complete;
 }
 
-function buildCartSelectionsFromResult(
-  result: OptimizationResult,
-  originalItems: CartItem[]
-): CartSelection[] {
-  const skuByCartIndex = new Map<number, number>();
-  const sellerKeyByCartIndex = new Map<number, string>();
-  for (const item of originalItems) {
-    skuByCartIndex.set(item.cartIndex, item.sku);
-    sellerKeyByCartIndex.set(item.cartIndex, item.currentSellerKey);
-  }
-
-  return result.assignments
-    .map((assignment) => {
-      const sku = skuByCartIndex.get(assignment.cartIndex);
-      if (!sku) {
-        throw new Error(`No SKU found for cartIndex ${assignment.cartIndex}.`);
-      }
-
-      const sellerKey = assignment.listing.listingId === "current"
-        ? sellerKeyByCartIndex.get(assignment.cartIndex) ?? assignment.listing.sellerKey
-        : assignment.listing.sellerKey;
-      const channelId = assignment.listing.listingId === "current"
-        ? 0
-        : assignment.listing.channelId;
-
-      return {
-        cartIndex: assignment.cartIndex,
-        sku,
-        sellerKey,
-        channelId,
-        name: assignment.name,
-      };
-    })
-    .sort((a, b) => a.cartIndex - b.cartIndex);
-}
-
 async function applyCartSelections(
   selections: CartSelection[],
   sendResponse: (msg: ExtensionMessage) => void
@@ -311,131 +261,6 @@ async function applyCartSelections(
 
   console.log(`[TCG Optimizer SW] Cart updated with ${selections.length} items`);
   sendResponse({ type: "UPDATE_CART_RESULT", success: true });
-}
-
-async function handleOptimize(
-  items: CartItem[],
-  verifiedOnly: boolean,
-  mode: "cheapest" | "fewest-packages" = "cheapest",
-  sendResponse: (msg: ExtensionMessage) => void
-) {
-  try {
-    console.log(`[TCG Optimizer SW] Starting optimization for ${items.length} items (verifiedOnly: ${verifiedOnly})`);
-    const startTime = performance.now();
-
-    // Step 1: Fetch listings for all cards (in parallel batches)
-    sendProgress("Fetching listings...", 0);
-    const allListings = await fetchAllListings(items);
-    console.log(`[TCG Optimizer SW] Fetched listings in ${Math.round(performance.now() - startTime)}ms`);
-
-    // Step 1.5: Filter by verified sellers if requested
-    if (verifiedOnly) {
-      for (const [productId, listings] of allListings) {
-        allListings.set(productId, listings.filter((l) => l.verified));
-      }
-      console.log(`[TCG Optimizer SW] Filtered to verified sellers only`);
-    }
-
-    // Step 2: Identify skipped cards (no listings found)
-    const skippedCards: SkippedCard[] = [];
-    const optimizableItems: CartItem[] = [];
-    for (const item of items) {
-      const listings = allListings.get(item.productId) ?? [];
-      if (listings.length === 0) {
-        skippedCards.push({
-          name: item.name,
-          condition: item.condition,
-          printing: item.printing,
-          reason: "No other listings found with given filters. Keeping original cart item.",
-        });
-        console.warn(`[TCG Optimizer SW] Skipping "${item.name}" — no listings for ${item.condition} / ${item.printing}`);
-      } else {
-        optimizableItems.push(item);
-      }
-    }
-
-    if (optimizableItems.length === 0) {
-      sendResponse({
-        type: "OPTIMIZATION_ERROR",
-        error: `No listings found for any of the ${items.length} cards. ${skippedCards.length} cards were skipped. Check condition/printing values in your cart.`,
-      });
-      return;
-    }
-
-    console.log(`[TCG Optimizer SW] ${optimizableItems.length} optimizable, ${skippedCards.length} skipped`);
-
-    // Step 2.5: Fetch seller shipping thresholds
-    sendProgress("Fetching shipping info...", 0.65);
-    const sellerShippingMap = await fetchSellerShippingThresholds(allListings.values());
-    console.log(`[TCG Optimizer SW] Fetched shipping thresholds for ${sellerShippingMap.size} sellers`);
-
-    // Step 3: Build model and solve (only for cards with listings)
-    sendProgress("Solving optimization...", 0.7, "Running solver...");
-    console.log("[TCG Optimizer SW] Running greedy solver...");
-    const modelInput = buildModelInput(optimizableItems, allListings, mode, sellerShippingMap);
-    const solverResult = await solve(modelInput);
-    console.log(`[TCG Optimizer SW] Solver result: ${solverResult.status} in ${solverResult.solveTimeMs}ms`);
-
-    if (solverResult.status !== "Optimal") {
-      sendResponse({
-        type: "OPTIMIZATION_ERROR",
-        error: solverResult.errorMessage ?? "Solver did not find optimal solution",
-      });
-      return;
-    }
-
-    // Step 4: Map solver result back to domain types
-    sendProgress("Building results...", 0.9);
-    const result = buildOptimizationResult(
-      optimizableItems,
-      allListings,
-      solverResult.chosenListings,
-      solverResult.solveTimeMs
-    );
-    result.skippedCards = skippedCards;
-
-    // Step 5: Inject skipped cards back into results with original cart data
-    let skippedTotalCents = 0;
-    for (const item of items) {
-      const listings = allListings.get(item.productId) ?? [];
-      if (listings.length === 0) {
-        result.assignments.push({
-          cartIndex: item.cartIndex,
-          productId: item.productId,
-          name: item.name,
-          listing: {
-            listingId: "current",
-            productId: item.productId,
-            sellerName: item.currentSeller || "(current seller)",
-            sellerKey: "current",
-            sellerId: 0,
-            priceCents: item.currentPriceCents,
-            quantity: item.quantity,
-            shippingCents: 0,
-            sellerShippingCents: 0,
-            verified: false,
-            condition: item.condition,
-            printing: item.printing,
-            channelId: 0,
-          },
-          originalPriceCents: item.currentPriceCents,
-          savingsCents: 0,
-        });
-        skippedTotalCents += item.currentPriceCents;
-      }
-    }
-    result.totalCostCents += skippedTotalCents;
-    result.originalTotalCents += skippedTotalCents;
-
-    console.log(`[TCG Optimizer SW] Optimization complete. Savings: $${(result.savingsCents / 100).toFixed(2)}, ${skippedCards.length} skipped, total time: ${Math.round(performance.now() - startTime)}ms`);
-    sendResponse({ type: "OPTIMIZATION_RESULT", result });
-  } catch (err) {
-    console.error("[TCG Optimizer SW] handleOptimize error:", err);
-    sendResponse({
-      type: "OPTIMIZATION_ERROR",
-      error: err instanceof Error ? err.message : "Optimization failed",
-    });
-  }
 }
 
 async function handleExportCliInput(
@@ -535,24 +360,6 @@ async function handleExportCliInput(
     sendResponse({
       type: "OPTIMIZATION_ERROR",
       error: err instanceof Error ? err.message : "Failed to export CLI input",
-    });
-  }
-}
-
-async function handleUpdateCart(
-  result: OptimizationResult,
-  originalItems: CartItem[],
-  sendResponse: (msg: ExtensionMessage) => void
-) {
-  try {
-    const selections = buildCartSelectionsFromResult(result, originalItems);
-    await applyCartSelections(selections, sendResponse);
-  } catch (err) {
-    console.error("[TCG Optimizer SW] handleUpdateCart error:", err);
-    sendResponse({
-      type: "UPDATE_CART_RESULT",
-      success: false,
-      error: err instanceof Error ? err.message : "Failed to update cart",
     });
   }
 }
@@ -908,69 +715,6 @@ async function sendUpdateProgress(stage: string, progress: number) {
 /** Concurrency limit for parallel listing fetches */
 const FETCH_CONCURRENCY = 5;
 
-async function fetchAllListings(
-  items: CartItem[]
-): Promise<Map<number, SellerListing[]>> {
-  const listingsMap = new Map<number, SellerListing[]>();
-
-  // Deduplicate by productId (same card might appear multiple times)
-  const uniqueItems = new Map<number, CartItem>();
-  for (const item of items) {
-    if (!uniqueItems.has(item.productId)) {
-      uniqueItems.set(item.productId, item);
-    }
-  }
-
-  const queue = Array.from(uniqueItems.values());
-  let completed = 0;
-
-  // Process in parallel batches
-  async function processItem(item: CartItem) {
-    try {
-      sendProgress(
-        `Fetching listings... (${completed}/${queue.length})`,
-        (completed / queue.length) * 0.6,
-        `Fetching "${item.name}" (${item.condition} / ${item.printing}, product ${item.productId})`
-      );
-      const listings = await fetchListings(
-        item.productId,
-        item.condition,
-        item.printing
-      );
-      listingsMap.set(item.productId, listings);
-      completed++;
-      sendProgress(
-        `Fetching listings... (${completed}/${queue.length})`,
-        (completed / queue.length) * 0.6,
-        `"${item.name}" → ${listings.length} listings`
-      );
-    } catch (err) {
-      console.error(`[TCG Optimizer SW] Failed to fetch listings for "${item.name}":`, err);
-      listingsMap.set(item.productId, []);
-      completed++;
-      sendProgress(
-        `Fetching listings... (${completed}/${queue.length})`,
-        (completed / queue.length) * 0.6,
-        `"${item.name}" → ERROR: ${err instanceof Error ? err.message : String(err)}`
-      );
-    }
-  }
-
-  // Run with concurrency limit
-  const executing = new Set<Promise<void>>();
-  for (const item of queue) {
-    const p = processItem(item);
-    executing.add(p);
-    p.finally(() => executing.delete(p));
-    if (executing.size >= FETCH_CONCURRENCY) {
-      await Promise.race(executing);
-    }
-  }
-  await Promise.all(executing);
-
-  return listingsMap;
-}
-
 async function fetchSellerShippingThresholds(
   listingGroups: Iterable<SellerListing[]>
 ): Promise<Map<string, SellerShippingThreshold>> {
@@ -1033,137 +777,4 @@ async function fetchSellerShippingThresholds(
   }
 
   return result;
-}
-
-function buildModelInput(
-  items: CartItem[],
-  allListings: Map<number, SellerListing[]>,
-  mode: "cheapest" | "fewest-packages" = "cheapest",
-  sellerShipping?: Map<string, SellerShippingThreshold>
-): ModelInput {
-  return {
-    cards: items.map((item) => ({
-      cartIndex: item.cartIndex,
-      productId: item.productId,
-      name: item.name,
-      currentPriceCents: item.currentPriceCents,
-    })),
-    listingsPerCard: items.map((item) => {
-      const listings = allListings.get(item.productId) ?? [];
-      return listings.map(
-        (l): ListingForModel => ({
-          listingId: l.listingId,
-          sellerKey: l.sellerKey,
-          priceCents: l.priceCents,
-          shippingCents: l.shippingCents,
-        })
-      );
-    }),
-    mode,
-    sellerShipping,
-  };
-}
-
-function buildOptimizationResult(
-  items: CartItem[],
-  allListings: Map<number, SellerListing[]>,
-  chosenListings: Map<number, string>,
-  solveTimeMs: number
-): OptimizationResult {
-  const assignments: CardAssignment[] = [];
-  const sellerMap = new Map<string, CardAssignment[]>();
-
-  // Build a lookup: listingId → SellerListing
-  const listingLookup = new Map<string, SellerListing>();
-  for (const listings of allListings.values()) {
-    for (const listing of listings) {
-      listingLookup.set(listing.listingId, listing);
-    }
-  }
-
-  for (let cardIdx = 0; cardIdx < items.length; cardIdx++) {
-    const item = items[cardIdx];
-    const listingId = chosenListings.get(cardIdx);
-    if (!listingId) continue;
-
-    const listing = listingLookup.get(listingId);
-    if (!listing) continue;
-
-    const assignment: CardAssignment = {
-      cartIndex: item.cartIndex,
-      productId: item.productId,
-      name: item.name,
-      listing,
-      originalPriceCents: item.currentPriceCents,
-      savingsCents: item.currentPriceCents - listing.priceCents,
-    };
-
-    assignments.push(assignment);
-
-    if (!sellerMap.has(listing.sellerKey)) {
-      sellerMap.set(listing.sellerKey, []);
-    }
-    sellerMap.get(listing.sellerKey)!.push(assignment);
-  }
-
-  const sellers: SellerSummary[] = [];
-  for (const [sellerKey, sellerAssignments] of sellerMap) {
-    const firstListing = sellerAssignments[0].listing;
-    const subtotal = sellerAssignments.reduce(
-      (sum, a) => sum + a.listing.priceCents,
-      0
-    );
-    sellers.push({
-      sellerName: firstListing.sellerName,
-      sellerKey,
-      items: sellerAssignments,
-      subtotalCents: subtotal,
-      shippingCents: firstListing.shippingCents,
-      totalCents: subtotal + firstListing.shippingCents,
-    });
-  }
-
-  const totalCostCents = sellers.reduce((sum, s) => sum + s.totalCents, 0);
-  const originalTotalCents = items.reduce(
-    (sum, item) => sum + item.currentPriceCents,
-    0
-  );
-
-  return {
-    assignments,
-    sellers,
-    totalCostCents,
-    originalTotalCents,
-    savingsCents: originalTotalCents - totalCostCents,
-    solveTimeMs,
-    skippedCards: [],
-  };
-}
-
-async function sendProgress(stage: string, progress: number, detail?: string) {
-  const msg: ExtensionMessage = {
-    type: "OPTIMIZATION_PROGRESS",
-    stage,
-    progress,
-    detail,
-  };
-
-  // Send to all TCGPlayer tabs (content scripts listen there)
-  try {
-    const tabs = await chrome.tabs.query({ url: "https://www.tcgplayer.com/*" });
-    for (const tab of tabs) {
-      if (tab.id) {
-        chrome.tabs.sendMessage(tab.id, msg).catch(() => {
-          // Content script may not be loaded on this tab
-        });
-      }
-    }
-  } catch {
-    // Ignore errors querying tabs
-  }
-
-  // Also send via runtime for any popup listeners
-  chrome.runtime.sendMessage(msg).catch(() => {
-    // No popup listeners
-  });
 }

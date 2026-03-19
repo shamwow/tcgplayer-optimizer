@@ -57,55 +57,6 @@ export interface SellerListing {
   channelId: number;
 }
 
-/** Per-card assignment in the optimal solution */
-export interface CardAssignment {
-  cartIndex: number;
-  productId: number;
-  name: string;
-  /** The listing chosen for this card */
-  listing: SellerListing;
-  /** Original price the user had in cart (cents) */
-  originalPriceCents: number;
-  /** Savings on this card (cents, positive = cheaper) */
-  savingsCents: number;
-}
-
-/** Per-seller summary */
-export interface SellerSummary {
-  sellerName: string;
-  sellerKey: string;
-  items: CardAssignment[];
-  subtotalCents: number;
-  shippingCents: number;
-  totalCents: number;
-}
-
-/** Full optimization result */
-export interface OptimizationResult {
-  /** Per-card assignments */
-  assignments: CardAssignment[];
-  /** Per-seller summaries */
-  sellers: SellerSummary[];
-  /** Total optimized cost (cards + shipping) in cents */
-  totalCostCents: number;
-  /** Original cart total in cents */
-  originalTotalCents: number;
-  /** Total savings in cents */
-  savingsCents: number;
-  /** Solver wall time in milliseconds */
-  solveTimeMs: number;
-  /** Cards that were skipped (no listings found) */
-  skippedCards: SkippedCard[];
-}
-
-/** A card that was skipped during optimization */
-export interface SkippedCard {
-  name: string;
-  condition: string;
-  printing: string;
-  reason: string;
-}
-
 /** Summary data from the cart API */
 export interface CartSummary {
   itemCount: number;
@@ -114,18 +65,11 @@ export interface CartSummary {
   shippingCostCents: number;
 }
 
-/** Optimization mode: minimize cost or minimize number of sellers */
-export type OptimizeMode = "cheapest" | "fewest-packages";
-
 /** Messages between content script, popup, and background */
 export type ExtensionMessage =
   | { type: "READ_CART" }
   | { type: "CART_DATA"; items: CartItem[]; summary: CartSummary | null }
-  | { type: "OPTIMIZE"; items: CartItem[]; verifiedOnly: boolean; mode: OptimizeMode }
-  | { type: "OPTIMIZATION_PROGRESS"; stage: string; progress: number; detail?: string }
-  | { type: "OPTIMIZATION_RESULT"; result: OptimizationResult }
   | { type: "OPTIMIZATION_ERROR"; error: string }
-  | { type: "UPDATE_CART"; result: OptimizationResult; items: CartItem[] }
   | { type: "UPDATE_CART_RESULT"; success: boolean; error?: string }
   | { type: "UPDATE_CART_PROGRESS"; stage: string; progress: number }
   | { type: "EXPORT_CLI_INPUT"; items: CartItem[]; verifiedOnly: boolean }
