@@ -613,7 +613,7 @@ function render() {
   }
 
   if (state.cartLoaded && state.items.length > 0) {
-    const pageItemCount = document.querySelectorAll('[data-testid="cartItem"]').length;
+    const pageItemCount = document.querySelectorAll('.package-item').length;
     if (pageItemCount > 0 && pageItemCount !== state.items.length) {
       html += `
         <div class="warning-box">
