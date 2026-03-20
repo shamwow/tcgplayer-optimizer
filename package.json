@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "solve": "node scripts/run-optimal-cart.mjs",
+    "solve": "node scripts/optimal-cart-entrypoint.mjs",
     "test": "vitest run"
   },
   "dependencies": {
